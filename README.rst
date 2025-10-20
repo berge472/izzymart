@@ -5,9 +5,9 @@ This repo contains a webapp for a kid friendly self checkout system for a preten
 
 Demo Vide: 
 
-.. image:: doc/screenshot.png
-
-https://youtu.be/B3PXOTO2d2E?si=Sg4PqpMot2eU77Ay
+.. image:: https://raw.githubusercontent.com/berge472/izzymart/main/doc/assets/screenshot.png
+   :alt: IzzyMart Demo Video
+   :target: https://youtu.be/B3PXOTO2d2E?si=Sg4PqpMot2eU77Ay
 
 
 Using IzzyMart
