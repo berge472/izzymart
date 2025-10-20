@@ -3,7 +3,7 @@ IzzyMart
 
 This repo contains a webapp for a kid friendly self checkout system for a pretend store called IzzyMart. It is built using Vue3 with Vuetify for the frontend, and a Python FastAPI backend with MongoDB for data storage.
 
-Demo Vide: 
+Demo Video: 
 
 .. image:: https://raw.githubusercontent.com/berge472/izzymart/main/doc/assets/screenshot.png
    :alt: IzzyMart Demo Video
