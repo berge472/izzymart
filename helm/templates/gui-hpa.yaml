@@ -1,0 +1,25 @@
+{{- if .Values.autoscaling.gui.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "izzymart.fullname" . }}-gui
+  labels:
+    {{- include "izzymart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gui
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "izzymart.fullname" . }}-gui
+  minReplicas: {{ .Values.autoscaling.gui.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.gui.maxReplicas }}
+  metrics:
+    {{- if .Values.autoscaling.gui.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.gui.targetCPUUtilizationPercentage }}
+    {{- end }}
+{{- end }}

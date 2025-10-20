@@ -6,15 +6,20 @@ from fastapi import APIRouter
 from config.db import db, fs
 from api.users.userModels import UserModel
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pymongo import MongoClient
 import hashlib
 
 from tempfile import NamedTemporaryFile
 from typing import Dict
 from api.files.fsFileModel import fsFileModel
+import io
+import mimetypes
+import logging
 
 from fastapi import Depends
+
+logger = logging.getLogger(__name__)
 
 
 fileRoutes = APIRouter()
@@ -80,6 +85,47 @@ async def getOne(id: str, current_user: Annotated[UserModel, Depends(get_current
 
     return fsFileModel(**model).model_dump(exclude_none=True)
 
+@fileRoutes.get("/{id}/image")
+async def get_image(id: str):
+    """
+    Retrieve an image from GridFS by ID.
+    Returns the image directly with appropriate content type.
+    This endpoint does not require authentication for easy image embedding.
+    """
+    try:
+        file_meta = db.files.find_one({"_id": ObjectId(id)})
+
+        if file_meta is None:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        file_id = file_meta['fileId']
+        gridfs_file = fs.get(ObjectId(file_id))
+
+        # Read file content
+        file_content = gridfs_file.read()
+
+        # Determine content type from filename or use default
+        filename = file_meta.get('name', 'image')
+        content_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+
+        # If it's an image, use the appropriate MIME type
+        if not content_type.startswith('image/'):
+            # Default to image/jpeg if no proper type detected
+            content_type = 'image/jpeg'
+
+        # Return as streaming response
+        return StreamingResponse(
+            io.BytesIO(file_content),
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f"inline; filename={filename}"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving image {id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving image")
+
+
 @fileRoutes.get( "/{id}/download")
 async def downloadModel(id: str, current_user: Annotated[UserModel, Depends(get_current_user('user'))]):
 
@@ -88,7 +134,7 @@ async def downloadModel(id: str, current_user: Annotated[UserModel, Depends(get_
 
     if file is None:
         raise HTTPException(status_code=404, detail="Model not found")
-    
+
 
 
     file_id = file['fileId']

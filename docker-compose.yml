@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: izzymart-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - izzymart
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: izzymart-api
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGO_HOST=mongodb
+      - MONGO_PORT=27017
+      - MONGO_DB_NAME=izzymart
+      - JWT_SECRET=dev-secret-change-in-production
+      - JWT_EXPIRE_MINUTES=10080
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - izzymart
+    volumes:
+      - ./api:/app
+      - /app/__pycache__
+    restart: unless-stopped
+
+  gui:
+    build:
+      context: ./gui
+      dockerfile: Dockerfile
+    container_name: izzymart-gui
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    networks:
+      - izzymart
+    restart: unless-stopped
+
+networks:
+  izzymart:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local

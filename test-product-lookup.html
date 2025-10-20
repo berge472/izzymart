@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IzzyMart - Product Lookup Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .search-box {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .auth-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .status {
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .product-card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            display: none;
+        }
+
+        .product-header {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .product-image {
+            width: 100%;
+            height: 300px;
+            object-fit: contain;
+            background: #f5f5f5;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+        }
+
+        .product-main-info h2 {
+            font-size: 2rem;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .product-brand {
+            color: #667eea;
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .product-price {
+            font-size: 2.5rem;
+            color: #27ae60;
+            font-weight: 700;
+            margin-bottom: 15px;
+        }
+
+        .product-upc {
+            color: #666;
+            font-size: 1rem;
+            margin-bottom: 10px;
+        }
+
+        .product-description {
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .tag {
+            background: #667eea;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+
+        .section {
+            margin-bottom: 25px;
+        }
+
+        .section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+        }
+
+        .nutrition-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .nutrition-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .nutrition-label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .nutrition-value {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .nutrition-grade {
+            display: inline-block;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 50px;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: white;
+            margin-right: 10px;
+        }
+
+        .grade-a { background: #27ae60; }
+        .grade-b { background: #2ecc71; }
+        .grade-c { background: #f39c12; }
+        .grade-d { background: #e67e22; }
+        .grade-e { background: #e74c3c; }
+
+        .allergens {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .allergen {
+            background: #e74c3c;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .ingredients-text {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            display: none;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .image-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .gallery-image {
+            width: 100%;
+            height: 150px;
+            object-fit: contain;
+            background: #f5f5f5;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .gallery-image:hover {
+            transform: scale(1.05);
+        }
+
+        @media (max-width: 768px) {
+            .product-header {
+                grid-template-columns: 1fr;
+            }
+
+            .auth-section {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛒 IzzyMart Product Lookup</h1>
+            <p>Enter a UPC code to lookup product information</p>
+        </div>
+
+        <div class="search-box">
+            <div class="auth-section">
+                <input type="text" id="username" placeholder="Username (default: root)" value="root">
+                <input type="password" id="password" placeholder="Password (default: root)" value="root">
+            </div>
+
+            <div class="status" id="status"></div>
+
+            <div class="input-group">
+                <input
+                    type="text"
+                    id="upcInput"
+                    placeholder="Enter UPC code (e.g., 0012345678901)"
+                    autofocus
+                >
+                <button onclick="lookupProduct()" id="searchBtn">Search</button>
+            </div>
+
+            <div style="margin-top: 15px; display: flex; align-items: center; gap: 10px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+                    <input
+                        type="checkbox"
+                        id="cacheEnabled"
+                        checked
+                        style="width: 18px; height: 18px; cursor: pointer;"
+                    >
+                    <span style="font-size: 0.95rem; color: #333;">Enable caching (save to database for faster future lookups)</span>
+                </label>
+            </div>
+
+            <p style="color: #666; font-size: 0.9rem; margin-top: 10px;">
+                Example UPCs to try:
+                <a href="#" onclick="setUPC('0041220576920'); return false;" style="color: #667eea;">0041220576920</a>,
+                <a href="#" onclick="setUPC('0028400028639'); return false;" style="color: #667eea;">0028400028639</a>
+                <a href="#" onclick="setUPC('021000025879'); return false;" style="color: #667eea;">021000025879</a>,
+            </p>
+
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+                <button onclick="resetDatabase()" id="resetBtn" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">
+                    🗑️ Reset Database
+                </button>
+                <p style="color: #666; font-size: 0.85rem; margin-top: 8px;">
+                    ⚠️ This will delete all cached products and images (requires admin)
+                </p>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Looking up product...</p>
+        </div>
+
+        <div class="product-card" id="productCard">
+            <div class="product-header">
+                <div>
+                    <img id="productImage" class="product-image" alt="Product Image">
+                </div>
+                <div class="product-main-info">
+                    <div class="product-brand" id="productBrand"></div>
+                    <h2 id="productName"></h2>
+                    <div class="product-price" id="productPrice"></div>
+                    <div class="product-upc" id="productUPC"></div>
+                    <div id="productSources" style="color: #666; font-size: 0.9rem; margin-bottom: 15px;"></div>
+                    <div class="product-description" id="productDescription"></div>
+                    <div class="tags" id="productTags"></div>
+                </div>
+            </div>
+
+            <div class="section" id="nutritionSection" style="display: none;">
+                <h3>📊 Nutrition Information</h3>
+                <div id="nutritionGrade"></div>
+                <div class="nutrition-grid" id="nutritionGrid"></div>
+            </div>
+
+            <div class="section" id="ingredientsSection" style="display: none;">
+                <h3>🧪 Ingredients</h3>
+                <div class="ingredients-text" id="ingredients"></div>
+            </div>
+
+            <div class="section" id="allergensSection" style="display: none;">
+                <h3>⚠️ Allergens</h3>
+                <div class="allergens" id="allergens"></div>
+            </div>
+
+            <div class="section" id="imagesSection" style="display: none;">
+                <h3>🖼️ All Images</h3>
+                <div class="image-gallery" id="imageGallery"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api/v1';
+        let authToken = null;
+
+        // Set UPC in input field
+        function setUPC(upc) {
+            document.getElementById('upcInput').value = upc;
+            lookupProduct();
+        }
+
+        // Show status message
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+
+            if (type === 'success') {
+                setTimeout(() => {
+                    status.style.display = 'none';
+                }, 3000);
+            }
+        }
+
+        // Get authentication token
+        async function getAuthToken() {
+            const username = document.getElementById('username').value || 'root';
+            const password = document.getElementById('password').value || 'root';
+
+            try {
+                const formData = new URLSearchParams();
+                formData.append('username', username);
+                formData.append('password', password);
+
+                const response = await fetch(`${API_BASE}/auth/token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Authentication failed');
+                }
+
+                const data = await response.json();
+                authToken = data.access_token;
+                showStatus('Authenticated successfully', 'success');
+                return true;
+            } catch (error) {
+                showStatus('Authentication failed: ' + error.message, 'error');
+                return false;
+            }
+        }
+
+        // Lookup product by UPC
+        async function lookupProduct() {
+            const upc = document.getElementById('upcInput').value.trim();
+
+            if (!upc) {
+                showStatus('Please enter a UPC code', 'error');
+                return;
+            }
+
+            // Get auth token if we don't have one
+            if (!authToken) {
+                const authenticated = await getAuthToken();
+                if (!authenticated) return;
+            }
+
+            // Check if caching is enabled
+            const cacheEnabled = document.getElementById('cacheEnabled').checked;
+
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('productCard').style.display = 'none';
+            document.getElementById('searchBtn').disabled = true;
+
+            try {
+                const url = `${API_BASE}/products/upc/${upc}?cache=${cacheEnabled}`;
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.status === 401) {
+                    // Token expired, get new one
+                    authToken = null;
+                    const authenticated = await getAuthToken();
+                    if (authenticated) {
+                        return lookupProduct(); // Retry
+                    }
+                    return;
+                }
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Product not found');
+                }
+
+                const product = await response.json();
+                displayProduct(product);
+                const cacheStatus = cacheEnabled ? '(cached)' : '(not cached)';
+                showStatus(`Product loaded successfully! ${cacheStatus}`, 'success');
+
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('searchBtn').disabled = false;
+            }
+        }
+
+        // Display product information
+        function displayProduct(product) {
+            // Main info
+            document.getElementById('productName').textContent = product.name || 'Unknown Product';
+            document.getElementById('productBrand').textContent = product.brand || '';
+            document.getElementById('productUPC').textContent = `UPC: ${product.upc}`;
+            document.getElementById('productDescription').textContent = product.description || '';
+
+            // Price
+            const priceEl = document.getElementById('productPrice');
+            if (product.price) {
+                priceEl.textContent = `$${product.price.toFixed(2)}`;
+            } else {
+                priceEl.textContent = 'Price not available';
+            }
+
+            // Sources
+            const sourcesEl = document.getElementById('productSources');
+            const sources = [];
+            if (product.price_source) {
+                sources.push(`💰 Price from: ${product.price_source}`);
+            }
+            if (product.image_source) {
+                sources.push(`📸 Images from: ${product.image_source}`);
+            }
+            if (sources.length > 0) {
+                sourcesEl.innerHTML = sources.join(' • ');
+                sourcesEl.style.display = 'block';
+            } else {
+                sourcesEl.style.display = 'none';
+            }
+
+            // Main image
+            const imageEl = document.getElementById('productImage');
+            if (product.images && product.images.length > 0) {
+                imageEl.src = `${API_BASE}/files/${product.images[0]}/image`;
+                imageEl.style.display = 'block';
+            } else {
+                imageEl.style.display = 'none';
+            }
+
+            // Tags
+            const tagsEl = document.getElementById('productTags');
+            tagsEl.innerHTML = '';
+            if (product.tags && product.tags.length > 0) {
+                product.tags.forEach(tag => {
+                    const tagEl = document.createElement('span');
+                    tagEl.className = 'tag';
+                    tagEl.textContent = tag;
+                    tagsEl.appendChild(tagEl);
+                });
+            }
+
+            // Nutrition
+            const nutritionSection = document.getElementById('nutritionSection');
+            if (product.nutrition) {
+                nutritionSection.style.display = 'block';
+                displayNutrition(product.nutrition);
+            } else {
+                nutritionSection.style.display = 'none';
+            }
+
+            // Ingredients
+            const ingredientsSection = document.getElementById('ingredientsSection');
+            if (product.ingredients) {
+                ingredientsSection.style.display = 'block';
+                document.getElementById('ingredients').textContent = product.ingredients;
+            } else {
+                ingredientsSection.style.display = 'none';
+            }
+
+            // Allergens
+            const allergensSection = document.getElementById('allergensSection');
+            if (product.allergens && product.allergens.length > 0) {
+                allergensSection.style.display = 'block';
+                const allergensEl = document.getElementById('allergens');
+                allergensEl.innerHTML = '';
+                product.allergens.forEach(allergen => {
+                    const allergenEl = document.createElement('span');
+                    allergenEl.className = 'allergen';
+                    allergenEl.textContent = allergen;
+                    allergensEl.appendChild(allergenEl);
+                });
+            } else {
+                allergensSection.style.display = 'none';
+            }
+
+            // Image gallery
+            const imagesSection = document.getElementById('imagesSection');
+            if (product.images && product.images.length > 1) {
+                imagesSection.style.display = 'block';
+                const galleryEl = document.getElementById('imageGallery');
+                galleryEl.innerHTML = '';
+                product.images.forEach(imageId => {
+                    const img = document.createElement('img');
+                    img.className = 'gallery-image';
+                    img.src = `${API_BASE}/files/${imageId}/image`;
+                    img.onclick = () => {
+                        document.getElementById('productImage').src = img.src;
+                    };
+                    galleryEl.appendChild(img);
+                });
+            } else {
+                imagesSection.style.display = 'none';
+            }
+
+            // Show product card
+            document.getElementById('productCard').style.display = 'block';
+        }
+
+        // Display nutrition information
+        function displayNutrition(nutrition) {
+            const gradeEl = document.getElementById('nutritionGrade');
+            gradeEl.innerHTML = '';
+
+            if (nutrition.nutrition_grade) {
+                const grade = nutrition.nutrition_grade.toUpperCase();
+                const gradeSpan = document.createElement('span');
+                gradeSpan.className = `nutrition-grade grade-${grade.toLowerCase()}`;
+                gradeSpan.textContent = grade;
+                gradeEl.appendChild(gradeSpan);
+                const label = document.createElement('span');
+                label.textContent = 'Nutrition Score';
+                label.style.fontWeight = '600';
+                gradeEl.appendChild(label);
+            }
+
+            const gridEl = document.getElementById('nutritionGrid');
+            gridEl.innerHTML = '';
+
+            const nutritionItems = [
+                { label: 'Serving Size', value: nutrition.serving_size, unit: '' },
+                { label: 'Calories', value: nutrition.calories, unit: '' },
+                { label: 'Total Fat', value: nutrition.fat, unit: 'g' },
+                { label: 'Saturated Fat', value: nutrition.saturated_fat, unit: 'g' },
+                { label: 'Trans Fat', value: nutrition.trans_fat, unit: 'g' },
+                { label: 'Cholesterol', value: nutrition.cholesterol, unit: 'mg' },
+                { label: 'Sodium', value: nutrition.sodium, unit: 'mg' },
+                { label: 'Carbohydrates', value: nutrition.carbohydrates, unit: 'g' },
+                { label: 'Fiber', value: nutrition.fiber, unit: 'g' },
+                { label: 'Sugars', value: nutrition.sugars, unit: 'g' },
+                { label: 'Protein', value: nutrition.protein, unit: 'g' },
+            ];
+
+            nutritionItems.forEach(item => {
+                if (item.value !== null && item.value !== undefined) {
+                    const div = document.createElement('div');
+                    div.className = 'nutrition-item';
+                    div.innerHTML = `
+                        <div class="nutrition-label">${item.label}</div>
+                        <div class="nutrition-value">${item.value}${item.unit}</div>
+                    `;
+                    gridEl.appendChild(div);
+                }
+            });
+        }
+
+        // Reset database
+        async function resetDatabase() {
+            if (!confirm('⚠️ Are you sure you want to reset the database?\n\nThis will DELETE ALL cached products and images!\n\nThis action cannot be undone.')) {
+                return;
+            }
+
+            // Get auth token if we don't have one
+            if (!authToken) {
+                const authenticated = await getAuthToken();
+                if (!authenticated) return;
+            }
+
+            // Disable reset button
+            document.getElementById('resetBtn').disabled = true;
+            showStatus('Resetting database...', 'info');
+
+            try {
+                const response = await fetch(`${API_BASE}/products/reset`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.status === 401) {
+                    // Token expired, get new one
+                    authToken = null;
+                    const authenticated = await getAuthToken();
+                    if (authenticated) {
+                        return resetDatabase(); // Retry
+                    }
+                    return;
+                }
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Reset failed');
+                }
+
+                const result = await response.json();
+                const deletedCount = result.deleted.products + result.deleted.file_metadata + result.deleted.gridfs_files;
+                showStatus(`✅ Database reset successfully! Deleted ${deletedCount} items total.`, 'success');
+
+                // Hide product card if visible
+                document.getElementById('productCard').style.display = 'none';
+
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            } finally {
+                document.getElementById('resetBtn').disabled = false;
+            }
+        }
+
+        // Allow Enter key to search
+        document.getElementById('upcInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                lookupProduct();
+            }
+        });
+
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                lookupProduct();
+            }
+        });
+    </script>
+</body>
+</html>

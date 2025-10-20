@@ -9,6 +9,8 @@ import logging
 from crochet import setup, wait_for
 from twisted.internet import reactor
 import time
+import requests
+from bs4 import BeautifulSoup
 
 # Initialize crochet for using Scrapy in a synchronous context
 setup()
@@ -352,4 +354,86 @@ def lookup_product_by_asin(asin: str) -> Optional[Dict[str, Any]]:
         return amazon_lookup.get_product_details_by_asin(asin)
     except Exception as e:
         logger.error(f"Error looking up product by ASIN {asin}: {str(e)}")
+        return None
+
+
+def search_amazon_by_name(product_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Search Amazon for a product by name using requests (no Scrapy).
+    Returns price and image URL for the first result.
+
+    Args:
+        product_name: Name of the product to search for
+
+    Returns:
+        Dictionary with store_name, name, price, image_url, url or None
+    """
+    try:
+        logger.info(f"Searching Amazon for: {product_name}")
+
+        base_url = "https://www.amazon.com"
+        search_url = f"{base_url}/s?k={quote_plus(product_name)}"
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        }
+
+        response = requests.get(search_url, headers=headers, timeout=10)
+
+        if response.status_code != 200:
+            logger.error(f"Amazon search failed with status {response.status_code}")
+            return None
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Find first search result
+        first_result = soup.select_one('div[data-component-type="s-search-result"]')
+
+        if not first_result:
+            logger.warning(f"No Amazon results found for: {product_name}")
+            return None
+
+        product = {
+            'store_name': 'Amazon',
+            'available': True
+        }
+
+        # Extract product title
+        title_elem = first_result.select_one('h2 span')
+        if title_elem:
+            product['name'] = title_elem.get_text(strip=True)
+
+        # Extract price
+        price_whole = first_result.select_one('span.a-price-whole')
+        if price_whole:
+            price_text = price_whole.get_text(strip=True).replace(',', '').replace('$', '')
+            try:
+                product['price'] = float(price_text)
+            except ValueError:
+                pass
+
+        # Extract image
+        image_elem = first_result.select_one('img.s-image')
+        if image_elem and image_elem.get('src'):
+            product['image_url'] = image_elem['src']
+
+        # Extract product URL
+        link_elem = first_result.select_one('h2 a')
+        if link_elem and link_elem.get('href'):
+            href = link_elem['href']
+            product['url'] = href if href.startswith('http') else base_url + href
+
+        if 'name' in product or 'price' in product:
+            logger.info(f"Found Amazon product: {product.get('name', 'Unknown')} - ${product.get('price', 'N/A')}")
+            return product
+
+        return None
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error searching Amazon: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error in Amazon search: {str(e)}")
         return None

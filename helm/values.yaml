@@ -1,0 +1,157 @@
+# Default values for izzymart
+replicaCount:
+  api: 1
+  gui: 1
+  mongodb: 1
+
+image:
+  api:
+    repository: berge472/izzymart-api
+    pullPolicy: Always
+    tag: "latest"
+  gui:
+    repository: berge472/izzymart-gui
+    pullPolicy: Always
+    tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  api:
+    type: ClusterIP
+    port: 8000
+  gui:
+    type: ClusterIP
+    port: 80
+  mongodb:
+    type: ClusterIP
+    port: 27017
+
+ingress:
+  enabled: true
+  className: ""
+  annotations:
+    # Cloudflare Tunnel annotations
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+    # Disable SSL redirect since Cloudflare handles TLS
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  hosts:
+    - host: izzymart.app
+      paths:
+        - path: /api
+          pathType: Prefix
+          backend: api
+        - path: /
+          pathType: Prefix
+          backend: gui
+  tls: []
+    # TLS is handled by Cloudflare Tunnel
+    # No need for cert-manager or ingress TLS
+
+resources:
+  api:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  gui:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  mongodb:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+
+autoscaling:
+  api:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+  gui:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# MongoDB Configuration
+mongodb:
+  auth:
+    enabled: false
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+
+# Application Configuration
+config:
+  api:
+    mongoHost: "izzymart-mongodb"
+    mongoPort: "27017"
+    mongoDbName: "izzymart"
+    jwtSecret: "your-secret-key-change-in-production"
+    jwtExpireMinutes: "10080"
+    # IMPORTANT: Change this password in production!
+    # This is the password for the root admin user
+    rootPassword: "changeme-in-production"
+  gui:
+    apiUrl: "http://izzymart-api:8000"
+
+# Environment variables
+env:
+  api:
+    - name: MONGO_HOST
+      value: "izzymart-mongodb"
+    - name: MONGO_PORT
+      value: "27017"
+    - name: MONGO_DB_NAME
+      value: "izzymart"
+    - name: JWT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: izzymart-secrets
+          key: jwt-secret
+    - name: JWT_EXPIRE_MINUTES
+      value: "10080"
+    - name: ROOT_PASSWD
+      valueFrom:
+        secretKeyRef:
+          name: izzymart-secrets
+          key: root-password
+    - name: PYTHONUNBUFFERED
+      value: "1"

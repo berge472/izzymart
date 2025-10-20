@@ -11,4 +11,6 @@ beautifulsoup4
 lxml
 scrapy
 crochet
+playwright
+playwright-stealth
 
