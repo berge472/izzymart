@@ -45,28 +45,22 @@ class ApiService {
   }
 
   async searchProducts(query: string): Promise<Product[]> {
-    try {
-      // For now, we don't have a search endpoint, so this is a placeholder
-      // You might want to add a search endpoint to your API
-      const response = await axios.get<Product[]>(
-        `${API_URL}/products`,
-        { headers: this.getHeaders() }
-      )
+    // Get all products - no authentication required
+    const response = await axios.get<Product[]>(`${API_URL}/products`)
 
-      // Filter locally by name
-      const allProducts = response.data
-      const lowerQuery = query.toLowerCase()
-      return allProducts.filter(p =>
-        p.name.toLowerCase().includes(lowerQuery) ||
-        p.brand?.toLowerCase().includes(lowerQuery)
-      )
-    } catch (error: any) {
-      if (error.response?.status === 401) {
-        await this.authenticate()
-        return this.searchProducts(query)
-      }
-      throw error
-    }
+    // Filter locally by name
+    const allProducts = response.data
+    const lowerQuery = query.toLowerCase()
+    return allProducts.filter(p =>
+      p.name.toLowerCase().includes(lowerQuery) ||
+      p.brand?.toLowerCase().includes(lowerQuery)
+    )
+  }
+
+  async getProduceItems(): Promise<Product[]> {
+    // Get all produce items - no authentication required
+    const response = await axios.get<Product[]>(`${API_URL}/products/produce`)
+    return response.data
   }
 
   getImageUrl(imageId: string): string {

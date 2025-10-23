@@ -46,6 +46,7 @@ import { useCartStore } from '@/store/cart'
 import { useSettingsStore } from '@/store/settings'
 import { api } from '@/services/api'
 import { Html5Qrcode } from 'html5-qrcode'
+import { isDebugMode } from '@/utils/urlParams'
 
 // Props to control behavior
 const props = defineProps<{
@@ -124,10 +125,12 @@ function handleKeyPress(event: KeyboardEvent) {
 async function processBarcode(upc: string) {
   console.log('Processing barcode:', upc)
 
+  // Play beep sound immediately before any API calls
+  playBeep()
+
   // In admin mode, just emit the UPC and let parent handle it
   if (props.adminMode) {
     emit('product-scanned', upc)
-    playBeep()
     return
   }
 
@@ -135,13 +138,13 @@ async function processBarcode(upc: string) {
   isScanning.value = true
 
   try {
-    const product = await api.getProductByUPC(upc)
+    // Use cache=false when debug mode is enabled via URL parameter
+    const useCache = !isDebugMode()
+    console.log(`Fetching product with cache=${useCache} (debug mode: ${isDebugMode()})`)
+    const product = await api.getProductByUPC(upc, useCache)
 
     // Add to cart
     cartStore.addItem(product)
-
-    // Play success sound (no notification popup)
-    playBeep()
   } catch (error: any) {
     console.error('Error scanning product:', error)
 
@@ -152,6 +155,8 @@ async function processBarcode(upc: string) {
       errorMessage = error.message
     }
 
+    // Play error sound
+    playErrorSound()
     showError(errorMessage)
   } finally {
     isScanning.value = false
@@ -178,6 +183,15 @@ function playBeep() {
   audio.volume = 0.5
   audio.play().catch(error => {
     console.error('Error playing scanner beep sound:', error)
+  })
+}
+
+function playErrorSound() {
+  // Play the error sound MP3 file
+  const audio = new Audio('/error-404.mp3')
+  audio.volume = 0.5
+  audio.play().catch(error => {
+    console.error('Error playing error sound:', error)
   })
 }
 

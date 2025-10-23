@@ -156,6 +156,20 @@ function handleCheckout() {
   showPaymentDialog.value = true
 }
 
+// Auto-scroll to bottom when cart items change
+watch(
+  () => cartStore.items.length,
+  async () => {
+    await nextTick()
+    if (cartItemsContainer.value) {
+      cartItemsContainer.value.scrollTo({
+        top: cartItemsContainer.value.scrollHeight,
+        behavior: 'smooth'
+      })
+    }
+  }
+)
+
 function onPaymentComplete() {
   // Clear the cart after successful payment
   cartStore.clearCart()

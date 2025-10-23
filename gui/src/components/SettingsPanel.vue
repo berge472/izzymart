@@ -105,6 +105,29 @@
             </div>
           </div>
         </div>
+
+        <!-- System Info -->
+        <div class="setting-section">
+          <h3 class="setting-label">
+            <v-icon>mdi-information</v-icon>
+            System
+          </h3>
+          <div class="system-info">
+            <div class="info-row">
+              <span class="info-label">Version:</span>
+              <span class="info-value">{{ appVersion }}</span>
+            </div>
+            <v-btn
+              color="primary"
+              variant="outlined"
+              prepend-icon="mdi-refresh"
+              block
+              @click="handleRefresh"
+            >
+              Refresh Page
+            </v-btn>
+          </div>
+        </div>
       </div>
 
       <div class="settings-footer">
@@ -140,6 +163,9 @@ const isOpen = ref(props.modelValue)
 const localStoreName = ref(settingsStore.storeName)
 const localTheme = ref<ThemeColor>(settingsStore.selectedTheme)
 const localCameraScanning = ref(settingsStore.cameraScanningEnabled)
+
+// App version from package.json
+const appVersion = ref('v0.1.0')
 
 // Sync with parent
 watch(() => props.modelValue, (newValue) => {
@@ -178,6 +204,10 @@ function saveSettings() {
   settingsStore.setTheme(localTheme.value)
   settingsStore.setCameraScanning(localCameraScanning.value)
   close()
+}
+
+function handleRefresh() {
+  window.location.reload()
 }
 </script>
 
@@ -310,5 +340,31 @@ function saveSettings() {
   padding: 1.5rem;
   border-top: 1px solid #e0e0e0;
   background: #f8f9fa;
+}
+
+.system-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.info-label {
+  font-weight: 600;
+  color: #666;
+}
+
+.info-value {
+  font-weight: 500;
+  color: #333;
+  font-family: monospace;
 }
 </style>

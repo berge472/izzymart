@@ -36,11 +36,59 @@
     <div v-else class="admin-panel">
       <div class="admin-header">
         <h1>Product Administration</h1>
-        <button @click="handleLogout" class="btn-logout">Logout</button>
+        <div class="header-actions">
+          <button @click="handleRefresh" class="btn-refresh">
+            <span class="refresh-icon">↻</span> Refresh
+          </button>
+          <button @click="handleLogout" class="btn-logout">Logout</button>
+        </div>
       </div>
 
       <!-- Scanner Input Handler -->
       <ScannerInput admin-mode @product-scanned="handleProductScanned" />
+
+      <!-- Search Bar -->
+      <div class="search-section">
+        <div class="search-bar">
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search products by name or brand..."
+            @input="handleSearch"
+            class="search-input"
+          />
+          <button v-if="searchQuery" @click="clearSearch" class="btn-clear-search">✕</button>
+        </div>
+
+        <!-- Search Results Dropdown -->
+        <div v-if="searchResults.length > 0" class="search-results">
+          <div
+            v-for="product in searchResults"
+            :key="product.id"
+            @click="selectProduct(product)"
+            class="search-result-item"
+          >
+            <img
+              v-if="product.images && product.images.length > 0"
+              :src="getImageUrl(product.images[0])"
+              :alt="product.name"
+              class="result-thumbnail"
+            />
+            <div class="result-info">
+              <div class="result-name">{{ product.name }}</div>
+              <div class="result-details">
+                <span v-if="product.brand" class="result-brand">{{ product.brand }}</span>
+                <span class="result-upc">UPC: {{ product.upc }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- No Results Message -->
+        <div v-if="searchQuery && isSearching === false && searchResults.length === 0" class="no-results">
+          No products found matching "{{ searchQuery }}"
+        </div>
+      </div>
 
       <!-- Scanning Indicator -->
       <div v-if="isScanning" class="scanning-overlay">
@@ -151,6 +199,12 @@
             Delete Product
           </button>
         </div>
+
+        <!-- On-Screen Keyboard -->
+        <div class="keyboard-section">
+          <h3>On-Screen Keyboard</h3>
+          <OnScreenKeyboard v-model="keyboardInput" @search="handleKeyboardSearch" />
+        </div>
       </div>
 
       <!-- Empty State -->
@@ -166,6 +220,8 @@ import { ref, computed, watch } from 'vue'
 import { api } from '@/services/api'
 import type { Product } from '@/types'
 import ScannerInput from '@/components/ScannerInput.vue'
+import OnScreenKeyboard from '@/components/OnScreenKeyboard.vue'
+import { isDebugMode } from '@/utils/urlParams'
 
 const isAuthenticated = ref(false)
 const username = ref('')
@@ -179,6 +235,15 @@ const isScanning = ref(false)
 const isSaving = ref(false)
 const imageUrl = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+
+// Search functionality
+const searchQuery = ref('')
+const searchResults = ref<Product[]>([])
+const isSearching = ref(false)
+let searchTimeout: number | null = null
+
+// Keyboard functionality
+const keyboardInput = ref('')
 
 const tagsString = computed({
   get: () => currentProduct.value?.tags?.join(', ') || '',
@@ -252,7 +317,10 @@ async function handleProductScanned(upc: string) {
   isScanning.value = true
 
   try {
-    const product = await api.getProductByUPC(upc)
+    // Use cache=false when debug mode is enabled via URL parameter
+    const useCache = !isDebugMode()
+    console.log(`Admin loading product with cache=${useCache} (debug mode: ${isDebugMode()})`)
+    const product = await api.getProductByUPC(upc, useCache)
     currentProduct.value = { ...product }
   } catch (error: any) {
     console.error('Error loading product:', error)
@@ -366,13 +434,74 @@ async function deleteProduct() {
     isSaving.value = false
   }
 }
+
+// Search functionality
+function handleSearch() {
+  // Clear existing timeout
+  if (searchTimeout) {
+    clearTimeout(searchTimeout)
+  }
+
+  // Clear results if search is empty
+  if (!searchQuery.value.trim()) {
+    searchResults.value = []
+    return
+  }
+
+  // Debounce search by 300ms
+  searchTimeout = window.setTimeout(async () => {
+    await performSearch()
+  }, 300)
+}
+
+async function performSearch() {
+  if (!searchQuery.value.trim()) {
+    searchResults.value = []
+    return
+  }
+
+  isSearching.value = true
+
+  try {
+    const results = await api.searchProducts(searchQuery.value)
+    searchResults.value = results
+  } catch (error: any) {
+    console.error('Error searching products:', error)
+    searchResults.value = []
+  } finally {
+    isSearching.value = false
+  }
+}
+
+function selectProduct(product: Product) {
+  currentProduct.value = { ...product }
+  searchQuery.value = ''
+  searchResults.value = []
+}
+
+function clearSearch() {
+  searchQuery.value = ''
+  searchResults.value = []
+}
+
+function handleRefresh() {
+  window.location.reload()
+}
+
+function handleKeyboardSearch() {
+  // Use keyboard input for search
+  searchQuery.value = keyboardInput.value
+  handleSearch()
+}
 </script>
 
 <style scoped>
 .admin-container {
   min-height: 100vh;
+  height: 100vh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 2rem;
+  overflow-y: auto;
 }
 
 /* Login Card */
@@ -471,6 +600,45 @@ async function deleteProduct() {
   color: #333;
 }
 
+.header-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.btn-refresh {
+  padding: 0.75rem 1.5rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-refresh:hover {
+  background: #5568d3;
+}
+
+.refresh-icon {
+  font-size: 1.2rem;
+  display: inline-block;
+  animation: spin 2s linear infinite paused;
+}
+
+.btn-refresh:active .refresh-icon {
+  animation-play-state: running;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 .btn-logout {
   padding: 0.75rem 1.5rem;
   background: #dc3545;
@@ -484,6 +652,134 @@ async function deleteProduct() {
 
 .btn-logout:hover {
   background: #c82333;
+}
+
+/* Search Section */
+.search-section {
+  margin-bottom: 2rem;
+  position: relative;
+}
+
+.search-bar {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.search-input {
+  width: 100%;
+  padding: 1.25rem 3rem 1.25rem 1.5rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  box-sizing: border-box;
+  transition: border-color 0.3s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.btn-clear-search {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.3s;
+}
+
+.btn-clear-search:hover {
+  background: #c82333;
+}
+
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0.5rem;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 100;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.search-result-item:hover {
+  background: #f8f9fa;
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.result-thumbnail {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-right: 1rem;
+  border: 1px solid #e0e0e0;
+}
+
+.result-info {
+  flex: 1;
+}
+
+.result-name {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #333;
+  margin-bottom: 0.25rem;
+}
+
+.result-details {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.result-brand {
+  font-weight: 500;
+}
+
+.result-upc {
+  color: #999;
+}
+
+.no-results {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  color: #999;
+  margin-top: 0.5rem;
 }
 
 /* Scanning Overlay */
@@ -715,6 +1011,20 @@ async function deleteProduct() {
 .empty-state p {
   color: #999;
   font-size: 1.2rem;
+}
+
+/* Keyboard Section */
+.keyboard-section {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.keyboard-section h3 {
+  margin-bottom: 1rem;
+  color: #333;
+  font-size: 1.1rem;
 }
 
 @media (max-width: 768px) {

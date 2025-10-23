@@ -1,11 +1,13 @@
 <template>
   <v-app>
+    <DebugIndicator />
     <router-view />
   </v-app>
 </template>
 
 <script setup lang="ts">
 import { useSettingsStore } from '@/store/settings'
+import DebugIndicator from '@/components/DebugIndicator.vue'
 
 // Initialize settings store to apply theme on app load
 const settingsStore = useSettingsStore()

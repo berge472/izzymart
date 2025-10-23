@@ -1,9 +1,12 @@
 import requests
 from typing import Optional, Dict, Any, List
 import logging
-from util.GoogleShoppingUtil import search_google_shopping
-from util.AmazonUtil import search_amazon_by_name
-from util.GoogleImageUtil import search_google_images
+
+try:
+    from util.AmazonUtil import AmazonUtil
+except ImportError:
+    from .AmazonUtil import AmazonUtil
+
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,8 @@ class OpenFoodFactsLookup:
         self.headers = {
             'User-Agent': 'IzzyMart/1.0 (Product Lookup Service)',
         }
+
+        self.amazon_util = AmazonUtil()
 
     def lookup_by_upc(self, upc: str, include_stores: bool = True) -> Optional[Dict[str, Any]]:
         """
@@ -52,11 +57,20 @@ class OpenFoodFactsLookup:
             # Extract product information
             product_data = self._extract_product_data(data.get('product', {}), upc)
 
-            # If we have a product name and stores should be included, search them
-            if include_stores and product_data.get('name'):
-                # Get the stores mentioned in OpenFoodFacts metadata
-                stores_mentioned = product_data.get('metadata', {}).get('stores_mentioned', '')
-                product_data['stores'] = self._search_stores(product_data['name'], stores_mentioned)
+            # Only search Amazon if include_stores is True
+
+            amazonResults = self.amazon_util.search_by_name(product_data['name'])
+
+            # Use Amazon price if found, otherwise set a default
+            if amazonResults.price is not None:
+                product_data['price'] = amazonResults.price
+            else:
+                product_data['price'] = 4.04  # Default price when not found
+
+            # Use Amazon image if found and we don't already have one
+            if amazonResults.image_url is not None:
+                product_data['image_url'] = amazonResults.image_url
+
 
             return product_data
 
@@ -65,6 +79,67 @@ class OpenFoodFactsLookup:
             return None
         except Exception as e:
             logger.error(f"Unexpected error in Open Food Facts lookup: {str(e)}")
+            return None
+
+    async def lookup_by_upc_async(self, upc: str, include_stores: bool = True) -> Optional[Dict[str, Any]]:
+        """
+        Async version of lookup_by_upc for use in FastAPI and other async contexts.
+
+        Args:
+            upc: Universal Product Code
+            include_stores: Whether to search stores for additional info
+
+        Returns:
+            Complete product information dictionary or None
+        """
+        try:
+            logger.info(f"Looking up UPC {upc} on Open Food Facts (async)")
+
+            # Query Open Food Facts API
+            url = f"{self.base_url}/product/{upc}.json"
+            response = requests.get(url, headers=self.headers, timeout=10)
+
+            if response.status_code != 200:
+                logger.warning(f"Open Food Facts returned status {response.status_code} for UPC {upc}")
+                return None
+
+            data = response.json()
+
+            if data.get('status') != 1:
+                logger.warning(f"Product not found in Open Food Facts: {upc}")
+                return None
+
+            # Extract product information
+            product_data = self._extract_product_data(data.get('product', {}), upc)
+
+            # Only search Amazon if include_stores is True
+            if include_stores:
+                # Use async version of Amazon search
+
+                search_name = product_data['brand'] + " " + product_data['name']
+
+                amazonResults = await self.amazon_util.search_by_name_async(search_name)
+
+                # Use Amazon price if found, otherwise set a default
+                if amazonResults.price is not None:
+                    product_data['price'] = amazonResults.price
+                else:
+                    product_data['price'] = 4.04  # Default price when not found
+
+                # Use Amazon image if found and we don't already have one
+                if amazonResults.image_url is not None:
+                    product_data['image_url'] = amazonResults.image_url
+            else:
+                # Set default price when not using store lookups
+                product_data['price'] = 4.04
+
+            return product_data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching from Open Food Facts for UPC {upc}: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error in Open Food Facts lookup (async): {str(e)}")
             return None
 
     def _extract_product_data(self, product: Dict, upc: str) -> Dict[str, Any]:
@@ -144,97 +219,7 @@ class OpenFoodFactsLookup:
 
         return nutrition
 
-    def _search_stores(self, product_name: str, stores_mentioned: str = None) -> List[Dict[str, Any]]:
-        """
-        Search stores for the product.
-        First tries Google Shopping, then falls back to Amazon if needed.
-        Uses stores mentioned in OpenFoodFacts as preferred stores.
-
-        Args:
-            product_name: Name of the product to search for
-            stores_mentioned: Comma-separated string of stores from OpenFoodFacts
-
-        Returns:
-            List with single store information dictionary, or empty list
-        """
-        logger.info(f"Searching for product: {product_name}")
-
-        if stores_mentioned:
-            logger.info(f"Stores mentioned in OpenFoodFacts: {stores_mentioned}")
-
-        # Build list of preferred stores from OpenFoodFacts data
-        preferred_stores = []
-        if stores_mentioned:
-            # Normalize and extract store names
-            stores_lower = stores_mentioned.lower()
-
-            # Common store mappings
-            if 'publix' in stores_lower:
-                preferred_stores.append('publix')
-            if 'target' in stores_lower:
-                preferred_stores.append('target')
-            if 'costco' in stores_lower:
-                preferred_stores.append('costco')
-            if 'walmart' in stores_lower:
-                preferred_stores.append('walmart')
-            if 'amazon' in stores_lower:
-                preferred_stores.append('amazon')
-            if 'kroger' in stores_lower:
-                preferred_stores.append('kroger')
-
-        # Try Google Shopping first (often blocked by bot detection)
-        try:
-            logger.info("Trying Google Shopping...")
-            result = search_google_shopping(product_name, preferred_stores if preferred_stores else None)
-            if result:
-                logger.info(f"Found product at {result.get('store_name', 'Unknown')}: {result.get('name')} - ${result.get('price', 'N/A')}")
-                return [result]
-            else:
-                logger.info("No Google Shopping results found, trying Amazon fallback...")
-        except Exception as e:
-            logger.warning(f"Google Shopping failed: {str(e)}, trying Amazon fallback...")
-
-        # Fallback to Amazon search
-        try:
-            logger.info("Searching Amazon...")
-            result = search_amazon_by_name(product_name)
-            if result:
-                logger.info(f"Found product on Amazon: {result.get('name')} - ${result.get('price', 'N/A')}")
-
-                # If Amazon didn't provide an image, try Google Images
-                if not result.get('image_url'):
-                    logger.info("No image from Amazon, trying Google Images...")
-                    try:
-                        image_urls = search_google_images(product_name, max_results=1)
-                        if image_urls and len(image_urls) > 0:
-                            result['image_url'] = image_urls[0]
-                            logger.info(f"Got image from Google Images")
-                    except Exception as e:
-                        logger.warning(f"Google Images failed: {str(e)}")
-
-                return [result]
-            else:
-                logger.warning(f"No Amazon results found for: {product_name}")
-
-                # Last resort: Try to at least get an image from Google Images
-                logger.info("Trying Google Images for product image...")
-                try:
-                    image_urls = search_google_images(product_name, max_results=1)
-                    if image_urls and len(image_urls) > 0:
-                        # Return a minimal result with just the image
-                        return [{
-                            'store_name': 'Google Images',
-                            'name': product_name,
-                            'image_url': image_urls[0],
-                            'available': True
-                        }]
-                except Exception as e:
-                    logger.warning(f"Google Images failed: {str(e)}")
-
-                return []
-        except Exception as e:
-            logger.error(f"Error searching Amazon: {str(e)}")
-            return []
+    
 
 
 # Global instance

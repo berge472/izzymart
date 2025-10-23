@@ -1,439 +1,308 @@
-import scrapy
-from scrapy.crawler import CrawlerRunner
-from scrapy.http import Request
-from typing import Optional, Dict, Any, List
-import re
-import json
-from urllib.parse import quote_plus
 import logging
-from crochet import setup, wait_for
-from twisted.internet import reactor
-import time
-import requests
-from bs4 import BeautifulSoup
-
-# Initialize crochet for using Scrapy in a synchronous context
-setup()
+from typing import Optional
+from urllib.parse import quote_plus
+import re
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import threading
 
 logger = logging.getLogger(__name__)
 
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright, TimeoutError as AsyncPlaywrightTimeoutError
 
-class AmazonProductSpider(scrapy.Spider):
+# Thread pool for running sync Playwright in async context
+_thread_pool = ThreadPoolExecutor(max_workers=5, thread_name_prefix="amazon_search")
+
+
+class AmazonSearchResult:
+    """Class to hold Amazon search result information."""
+    def __init__(self):
+        self.price = None
+        self.image_url = None
+        self.title = None
+        self.asin = None
+        self.url = None
+
+
+class AmazonUtil:
     """
-    Scrapy spider for extracting product information from Amazon.
-    """
-    name = 'amazon_product'
+    Utility class for searching Amazon products and extracting pricing/images.
+    Uses Playwright to handle Amazon's dynamic content.
 
-    custom_settings = {
-        'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'ROBOTSTXT_OBEY': False,
-        'CONCURRENT_REQUESTS': 1,
-        'DOWNLOAD_DELAY': 2,  # Be polite, wait 2 seconds between requests
-        'COOKIES_ENABLED': True,
-        'RETRY_TIMES': 3,
-        'REDIRECT_ENABLED': True,
-        'HTTPERROR_ALLOWED_CODES': [404, 503],
-        'DEFAULT_REQUEST_HEADERS': {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
-        }
-    }
+    Provides both sync and async methods:
+    - search_by_name(): Synchronous search for use in non-async code
+    - search_by_name_async(): Async search for use in FastAPI and async contexts
 
-    def __init__(self, upc=None, asin=None, search_mode='upc', *args, **kwargs):
-        super(AmazonProductSpider, self).__init__(*args, **kwargs)
-        self.upc = upc
-        self.asin = asin
-        self.search_mode = search_mode
-        self.results = []
-        self.base_url = "https://www.amazon.com"
-
-    def start_requests(self):
-        """Generate the initial request based on search mode."""
-        if self.search_mode == 'upc' and self.upc:
-            search_url = f"{self.base_url}/s?k={quote_plus(self.upc)}"
-            yield Request(url=search_url, callback=self.parse_search_results, dont_filter=True)
-        elif self.search_mode == 'asin' and self.asin:
-            product_url = f"{self.base_url}/dp/{self.asin}"
-            yield Request(url=product_url, callback=self.parse_product_page, dont_filter=True)
-
-    def parse_search_results(self, response):
-        """Parse Amazon search results page."""
-        logger.info(f"Parsing search results from {response.url}")
-
-        # Try to extract product data from JSON-LD
-        json_ld_scripts = response.css('script[type="application/ld+json"]::text').getall()
-
-        for json_str in json_ld_scripts:
-            try:
-                data = json.loads(json_str)
-                if isinstance(data, dict) and data.get('@type') == 'Product':
-                    product = self._extract_from_json_ld(data)
-                    if product:
-                        self.results.append(product)
-                        return
-            except json.JSONDecodeError:
-                continue
-
-        # Fallback: Parse HTML directly using CSS selectors
-        # Find the first search result
-        first_result = response.css('div[data-component-type="s-search-result"]').first()
-
-        if first_result:
-            product = self._parse_search_result_item(first_result)
-            if product:
-                self.results.append(product)
-        else:
-            logger.warning(f"No search results found for UPC: {self.upc}")
-
-    def parse_product_page(self, response):
-        """Parse Amazon product detail page."""
-        logger.info(f"Parsing product page from {response.url}")
-
-        product = {
-            'metadata': {'asin': self.asin}
-        }
-
-        # Extract product title
-        title = response.css('#productTitle::text').get()
-        if title:
-            product['name'] = title.strip()
-
-        # Extract price - try multiple selectors
-        price_whole = response.css('span.a-price-whole::text').get() or \
-                     response.css('#priceblock_ourprice::text').get() or \
-                     response.css('#priceblock_dealprice::text').get()
-
-        if price_whole:
-            try:
-                price_str = price_whole.replace(',', '').replace('$', '').strip()
-                product['price'] = float(price_str)
-            except (ValueError, AttributeError):
-                product['price'] = None
-
-        # Extract main image
-        image_url = response.css('#landingImage::attr(src)').get() or \
-                   response.css('#imgBlkFront::attr(src)').get()
-        if image_url:
-            product['image_url'] = image_url
-
-        # Extract description from feature bullets
-        feature_bullets = response.css('#feature-bullets span.a-list-item::text').getall()
-        if feature_bullets:
-            description_parts = [f.strip() for f in feature_bullets if f.strip()]
-            product['description'] = ' '.join(description_parts)
-
-        # Extract brand
-        brand = response.css('#bylineInfo::text').get()
-        if brand:
-            brand_clean = brand.strip().replace('Visit the ', '').replace(' Store', '').replace('Brand: ', '')
-            product['metadata']['brand'] = brand_clean
-
-        # Extract rating
-        rating = response.css('span.a-icon-alt::text').get()
-        if rating:
-            rating_match = re.search(r'([\d.]+)\s*out of', rating)
-            if rating_match:
-                product['metadata']['rating'] = rating_match.group(1)
-
-        # Extract review count
-        review_count = response.css('#acrCustomerReviewText::text').get()
-        if review_count:
-            count_match = re.search(r'([\d,]+)', review_count)
-            if count_match:
-                product['metadata']['review_count'] = count_match.group(1).replace(',', '')
-
-        product['amazon_url'] = f"{self.base_url}/dp/{self.asin}"
-
-        if 'name' in product:
-            self.results.append(product)
-        else:
-            logger.warning(f"Could not extract product name for ASIN: {self.asin}")
-
-    def _parse_search_result_item(self, item):
-        """Parse a single search result item."""
-        product = {
-            'upc': self.upc,
-            'metadata': {}
-        }
-
-        # Extract product title
-        title = item.css('h2 span.a-text-normal::text').get() or \
-               item.css('h2 a span::text').get()
-        if title:
-            product['name'] = title.strip()
-        else:
-            return None
-
-        # Extract price
-        price_whole = item.css('span.a-price-whole::text').get()
-        if price_whole:
-            try:
-                price_str = price_whole.replace(',', '').replace('$', '').strip()
-                product['price'] = float(price_str)
-            except (ValueError, AttributeError):
-                product['price'] = None
-
-        # Extract image URL
-        image_url = item.css('img.s-image::attr(src)').get()
-        if image_url:
-            product['image_url'] = image_url
-
-        # Extract product URL and ASIN
-        product_link = item.css('h2 a.a-link-normal::attr(href)').get()
-        if product_link:
-            if product_link.startswith('/'):
-                product['amazon_url'] = self.base_url + product_link
-            else:
-                product['amazon_url'] = product_link
-
-            # Extract ASIN from URL
-            asin_match = re.search(r'/dp/([A-Z0-9]{10})', product['amazon_url'])
-            if asin_match:
-                product['metadata']['asin'] = asin_match.group(1)
-
-        # Extract brand
-        brand = item.css('span.a-size-base-plus::text').get()
-        if brand and brand.strip() and not brand.strip().startswith('$'):
-            product['metadata']['brand'] = brand.strip()
-
-        # Extract rating
-        rating = item.css('span.a-icon-alt::text').get()
-        if rating:
-            rating_match = re.search(r'([\d.]+)\s*out of', rating)
-            if rating_match:
-                product['metadata']['rating'] = rating_match.group(1)
-
-        return product
-
-    def _extract_from_json_ld(self, data):
-        """Extract product information from JSON-LD structured data."""
-        product = {
-            'name': data.get('name', ''),
-            'description': data.get('description', ''),
-            'upc': self.upc,
-            'metadata': {}
-        }
-
-        # Extract price
-        if 'offers' in data:
-            offers = data['offers']
-            if isinstance(offers, dict):
-                price_str = offers.get('price', '')
-                try:
-                    product['price'] = float(price_str) if price_str else None
-                except (ValueError, TypeError):
-                    product['price'] = None
-            elif isinstance(offers, list) and len(offers) > 0:
-                price_str = offers[0].get('price', '')
-                try:
-                    product['price'] = float(price_str) if price_str else None
-                except (ValueError, TypeError):
-                    product['price'] = None
-
-        # Extract image URL
-        if 'image' in data:
-            image = data['image']
-            if isinstance(image, str):
-                product['image_url'] = image
-            elif isinstance(image, list) and len(image) > 0:
-                product['image_url'] = image[0]
-
-        # Extract product URL
-        if 'url' in data:
-            product['amazon_url'] = data['url']
-
-        # Store additional metadata
-        if isinstance(data.get('brand'), dict):
-            product['metadata']['brand'] = data['brand'].get('name', '')
-        else:
-            product['metadata']['brand'] = data.get('brand', '')
-
-        product['metadata']['sku'] = data.get('sku', '')
-
-        if 'aggregateRating' in data:
-            rating = data['aggregateRating']
-            product['metadata']['rating'] = rating.get('ratingValue', '')
-            product['metadata']['review_count'] = rating.get('reviewCount', '')
-
-        return product if product.get('name') else None
-
-
-class AmazonProductLookup:
-    """
-    Main utility class for looking up products on Amazon using Scrapy.
-    Uses crochet to run Scrapy in a synchronous context (compatible with FastAPI).
+    The async version runs Playwright in a thread pool to avoid blocking the event loop.
     """
 
     def __init__(self):
-        self.runner = CrawlerRunner()
+        self.base_url = "https://www.amazon.com"
 
-    @wait_for(timeout=30.0)
-    def search_by_upc(self, upc: str) -> Optional[Dict[str, Any]]:
+    def search_by_name(self, product_name: str) -> AmazonSearchResult:
         """
-        Search for a product on Amazon by UPC code.
+        Search for a product by name on Amazon and return the first result.
+
+        Note: This is a synchronous wrapper. When called from async context,
+        it runs the search in a thread pool to avoid blocking the event loop.
 
         Args:
-            upc: The Universal Product Code to search for
+            product_name: The product name to search for
 
         Returns:
-            Dictionary containing product details if found, None otherwise
+            AmazonSearchResult object with price and image_url (may be None if not found)
         """
-        logger.info(f"Starting Scrapy search for UPC: {upc}")
+        result = AmazonSearchResult()
 
-        # Create spider instance
-        spider = AmazonProductSpider(upc=upc, search_mode='upc')
+        if not product_name:
+            logger.warning("Empty product name provided")
+            return result
 
-        # Run the spider
-        deferred = self.runner.crawl(spider)
+        # Check if we're running inside an asyncio event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context - this is a blocking call but unavoidable
+            # The caller should use search_by_name_async() for true async behavior
+            logger.warning("search_by_name() called from async context - use search_by_name_async() for better performance")
+            future = loop.run_in_executor(_thread_pool, self._search_sync, product_name)
+            # This creates a future but we need to return synchronously
+            # This is not ideal - callers in async context should use the async version
+            return asyncio.run_coroutine_threadsafe(
+                asyncio.wrap_future(future),
+                loop
+            ).result(timeout=120)
+        except RuntimeError:
+            # No event loop running, use sync version directly
+            pass
+        except Exception as e:
+            logger.error(f"Error running Amazon search: {e}")
+            return result
 
-        # Wait for spider to complete and return results
-        deferred.addCallback(lambda _: spider.results[0] if spider.results else None)
+        return self._search_sync(product_name)
 
-        return deferred
-
-    @wait_for(timeout=30.0)
-    def get_product_details_by_asin(self, asin: str) -> Optional[Dict[str, Any]]:
+    async def search_by_name_async(self, product_name: str) -> AmazonSearchResult:
         """
-        Get detailed product information by ASIN (Amazon Standard Identification Number).
+        Async version of search_by_name for use in async contexts.
+        Runs the sync Playwright code in a thread pool executor.
 
         Args:
-            asin: Amazon Standard Identification Number
+            product_name: The product name to search for
 
         Returns:
-            Dictionary containing product details if found, None otherwise
+            AmazonSearchResult object with price and image_url (may be None if not found)
         """
-        logger.info(f"Starting Scrapy search for ASIN: {asin}")
+        if not product_name:
+            logger.warning("Empty product name provided")
+            return AmazonSearchResult()
 
-        # Create spider instance
-        spider = AmazonProductSpider(asin=asin, search_mode='asin')
+        try:
+            loop = asyncio.get_running_loop()
+            logger.info("Running Amazon search in thread pool (async)")
+            result = await loop.run_in_executor(_thread_pool, self._search_sync, product_name)
+            return result
+        except Exception as e:
+            logger.error(f"Error in async Amazon search: {e}")
+            return AmazonSearchResult()
 
-        # Run the spider
-        deferred = self.runner.crawl(spider)
+    def _search_sync(self, product_name: str) -> AmazonSearchResult:
+        """Synchronous version of Amazon search using sync Playwright API."""
+        result = AmazonSearchResult()
+        search_url = f"{self.base_url}/s?k={quote_plus(product_name)}"
 
-        # Wait for spider to complete and return results
-        deferred.addCallback(lambda _: spider.results[0] if spider.results else None)
+        try:
+            with sync_playwright() as p:
+                # Launch browser with anti-detection measures
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--disable-blink-features=AutomationControlled',
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                    ]
+                )
 
-        return deferred
+                context = browser.new_context(
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='en-US',
+                    timezone_id='America/New_York'
+                )
+
+                # Set additional headers
+                context.set_extra_http_headers({
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                })
+
+                page = context.new_page()
+
+                logger.info(f"Searching Amazon for: {product_name}")
+
+                try:
+                    page.goto(search_url, wait_until='domcontentloaded', timeout=30000)
+                except PlaywrightTimeoutError:
+                    logger.warning("Amazon page load timed out, continuing anyway")
+
+                # Wait for search results to load
+                page.wait_for_timeout(3000)
+
+                # Try to find the first product result
+                # Amazon uses various selectors for product cards
+                product_selectors = [
+                    '[data-component-type="s-search-result"]',
+                    '.s-result-item[data-asin]',
+                    'div[data-component-type="s-search-result"]',
+                    '.s-result-item',
+                ]
+
+                first_product = None
+                for selector in product_selectors:
+                    try:
+                        page.wait_for_selector(selector, timeout=5000)
+                        # Get all matching elements and find the first valid one
+                        elements = page.query_selector_all(selector)
+                        for elem in elements:
+                            # Skip sponsored results if possible
+                            asin = elem.get_attribute('data-asin')
+                            if asin and asin != '':
+                                first_product = elem
+                                result.asin = asin
+                                logger.info(f"Found product with ASIN: {asin}")
+                                break
+                        if first_product:
+                            break
+                    except PlaywrightTimeoutError:
+                        continue
+
+                if not first_product:
+                    logger.warning("No product found in Amazon search results")
+                    browser.close()
+                    return result
+
+                # Extract price
+                price_selectors = [
+                    '.a-price .a-offscreen',
+                    'span.a-price-whole',
+                    '.a-price span[aria-hidden="true"]',
+                    'span[data-a-color="price"]',
+                    '.a-color-price',
+                ]
+
+                for price_sel in price_selectors:
+                    price_elem = first_product.query_selector(price_sel)
+                    if price_elem:
+                        price_text = price_elem.inner_text().strip()
+                        # Extract numeric value (e.g., "$12.99" -> 12.99 or "12 99" -> 12.99)
+                        price_match = re.search(r'[\$]?\s*(\d+)[.,\s]?(\d{0,2})', price_text)
+                        if price_match:
+                            dollars = price_match.group(1)
+                            cents = price_match.group(2) if price_match.group(2) else '00'
+                            # Pad cents to 2 digits
+                            cents = cents.ljust(2, '0')
+                            result.price = float(f"{dollars}.{cents}")
+                            logger.info(f"Found price: ${result.price}")
+                            break
+
+                # Extract image URL
+                img_selectors = [
+                    'img.s-image',
+                    'img[data-image-latency="s-product-image"]',
+                    '.s-product-image-container img',
+                    'img',
+                ]
+
+                for img_sel in img_selectors:
+                    img_elem = first_product.query_selector(img_sel)
+                    if img_elem:
+                        # Try different image attributes
+                        img_url = (img_elem.get_attribute('src') or
+                                  img_elem.get_attribute('data-src') or
+                                  img_elem.get_attribute('srcset'))
+
+                        if img_url:
+                            # If srcset, take the first URL
+                            if ',' in img_url:
+                                img_url = img_url.split(',')[0].strip().split(' ')[0]
+
+                            # Skip placeholder images
+                            if 'data:image' not in img_url and 'transparent-pixel' not in img_url:
+                                result.image_url = img_url
+                                logger.info(f"Found image URL: {img_url[:80]}...")
+                                break
+
+                # Extract title
+                title_selectors = [
+                    'h2 a span',
+                    'h2 span',
+                    '.a-size-medium.a-color-base.a-text-normal',
+                ]
+
+                for title_sel in title_selectors:
+                    title_elem = first_product.query_selector(title_sel)
+                    if title_elem:
+                        result.title = title_elem.inner_text().strip()
+                        logger.info(f"Found title: {result.title[:60]}...")
+                        break
+
+                # Extract product URL
+                link_elem = first_product.query_selector('h2 a, a.a-link-normal')
+                if link_elem:
+                    href = link_elem.get_attribute('href')
+                    if href:
+                        # Make URL absolute
+                        if href.startswith('/'):
+                            result.url = self.base_url + href
+                        else:
+                            result.url = href
+
+                browser.close()
+
+                if not result.price and not result.image_url:
+                    logger.warning("Could not extract price or image from Amazon result")
+
+                return result
+
+        except PlaywrightTimeoutError as e:
+            logger.error(f"Timeout while searching Amazon: {e}")
+            return result
+        except Exception as e:
+            logger.error(f"Error searching Amazon: {e}")
+            return result
 
 
-# Global instance
-amazon_lookup = AmazonProductLookup()
+if __name__ == "__main__":
+    # Test the AmazonUtil
+    import sys
+    import os
 
+    # Enable logging
+    logging.basicConfig(level=logging.INFO)
 
-def lookup_product_by_upc(upc: str) -> Optional[Dict[str, Any]]:
-    """
-    Convenience function to lookup a product by UPC on Amazon.
+    amazon = AmazonUtil()
 
-    Args:
-        upc: Universal Product Code
+    # Test search
+    test_products = ["goldfish crackers", "organic milk", "iPhone"]
 
-    Returns:
-        Product details dictionary or None if not found
-    """
-    try:
-        return amazon_lookup.search_by_upc(upc)
-    except Exception as e:
-        logger.error(f"Error looking up product by UPC {upc}: {str(e)}")
-        return None
+    for product in test_products:
+        print(f"\n{'='*60}")
+        print(f"Searching for: {product}")
+        print('='*60)
 
+        result = amazon.search_by_name(product)
 
-def lookup_product_by_asin(asin: str) -> Optional[Dict[str, Any]]:
-    """
-    Convenience function to lookup a product by ASIN on Amazon.
-
-    Args:
-        asin: Amazon Standard Identification Number
-
-    Returns:
-        Product details dictionary or None if not found
-    """
-    try:
-        return amazon_lookup.get_product_details_by_asin(asin)
-    except Exception as e:
-        logger.error(f"Error looking up product by ASIN {asin}: {str(e)}")
-        return None
-
-
-def search_amazon_by_name(product_name: str) -> Optional[Dict[str, Any]]:
-    """
-    Search Amazon for a product by name using requests (no Scrapy).
-    Returns price and image URL for the first result.
-
-    Args:
-        product_name: Name of the product to search for
-
-    Returns:
-        Dictionary with store_name, name, price, image_url, url or None
-    """
-    try:
-        logger.info(f"Searching Amazon for: {product_name}")
-
-        base_url = "https://www.amazon.com"
-        search_url = f"{base_url}/s?k={quote_plus(product_name)}"
-
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-        }
-
-        response = requests.get(search_url, headers=headers, timeout=10)
-
-        if response.status_code != 200:
-            logger.error(f"Amazon search failed with status {response.status_code}")
-            return None
-
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-        # Find first search result
-        first_result = soup.select_one('div[data-component-type="s-search-result"]')
-
-        if not first_result:
-            logger.warning(f"No Amazon results found for: {product_name}")
-            return None
-
-        product = {
-            'store_name': 'Amazon',
-            'available': True
-        }
-
-        # Extract product title
-        title_elem = first_result.select_one('h2 span')
-        if title_elem:
-            product['name'] = title_elem.get_text(strip=True)
-
-        # Extract price
-        price_whole = first_result.select_one('span.a-price-whole')
-        if price_whole:
-            price_text = price_whole.get_text(strip=True).replace(',', '').replace('$', '')
-            try:
-                product['price'] = float(price_text)
-            except ValueError:
-                pass
-
-        # Extract image
-        image_elem = first_result.select_one('img.s-image')
-        if image_elem and image_elem.get('src'):
-            product['image_url'] = image_elem['src']
-
-        # Extract product URL
-        link_elem = first_result.select_one('h2 a')
-        if link_elem and link_elem.get('href'):
-            href = link_elem['href']
-            product['url'] = href if href.startswith('http') else base_url + href
-
-        if 'name' in product or 'price' in product:
-            logger.info(f"Found Amazon product: {product.get('name', 'Unknown')} - ${product.get('price', 'N/A')}")
-            return product
-
-        return None
-
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error searching Amazon: {str(e)}")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error in Amazon search: {str(e)}")
-        return None
+        if result.price or result.image_url:
+            print(f"✓ Result found:")
+            if result.title:
+                print(f"  Title: {result.title}")
+            if result.price:
+                print(f"  Price: ${result.price}")
+            if result.image_url:
+                print(f"  Image: {result.image_url[:100]}...")
+            if result.asin:
+                print(f"  ASIN: {result.asin}")
+            if result.url:
+                print(f"  URL: {result.url[:100]}...")
+        else:
+            print("✗ No result found")

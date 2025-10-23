@@ -2,17 +2,25 @@
 """
 Seed Database with Common Produce Items
 ========================================
-This script adds 100 common produce items to the database.
+This script adds 100 common produce items to the database with images.
 """
 
 import os
+import sys
 from pymongo import MongoClient
 from bson import ObjectId
+import gridfs
+
+# Add parent directory to path to import utilities
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from util.GoogleImageUtil import search_google_images
+import requests
+import hashlib
 
 # MongoDB connection
 MONGO_HOST = os.getenv('MONGO_HOST', 'localhost')
 MONGO_PORT = int(os.getenv('MONGO_PORT', '27017'))
-MONGO_DB_NAME = os.getenv('MONGO_DB_NAME', 'izzymart')
+MONGO_DB_NAME = os.getenv('MONGO_DB_NAME', 'app')
 
 # 100 most common produce items with realistic prices
 PRODUCE_ITEMS = [
@@ -135,6 +143,65 @@ PRODUCE_ITEMS = [
     {"name": "Pumpkin", "price": 4.99, "category": "Vegetables"},
 ]
 
+def download_and_store_image(image_url, filename, db, fs):
+    """
+    Download an image from a URL and store it in GridFS.
+
+    Args:
+        image_url: URL of the image to download
+        filename: Name to give the file
+        db: MongoDB database instance
+        fs: GridFS instance
+
+    Returns:
+        File ID string if successful, None otherwise
+    """
+    try:
+        print(f"    📥 Downloading image from: {image_url[:60]}...")
+        response = requests.get(image_url, timeout=10)
+
+        if response.status_code != 200:
+            print(f"    ❌ Failed to download image: HTTP {response.status_code}")
+            return None
+
+        image_data = response.content
+
+        # Calculate MD5 hash for deduplication
+        md5_hash = hashlib.md5(image_data).hexdigest()
+
+        # Check if file already exists
+        existing = db.files.find_one({"md5": md5_hash})
+
+        if existing is not None:
+            print(f"    ♻️  Image already exists (using cached)")
+            return str(existing['_id'])
+
+        # Store in GridFS
+        gridfs_file_id = fs.put(
+            image_data,
+            filename=filename,
+            owner='system',
+            content_type=response.headers.get('Content-Type', 'image/jpeg')
+        )
+
+        # Create file metadata entry
+        new_fs_file = {
+            "name": filename,
+            "md5": md5_hash,
+            "fileId": str(gridfs_file_id),
+            "references": []
+        }
+
+        inserted = db.files.insert_one(new_fs_file)
+        file_id = str(inserted.inserted_id)
+
+        print(f"    ✅ Image stored successfully")
+        return file_id
+
+    except Exception as e:
+        print(f"    ❌ Error downloading image: {str(e)}")
+        return None
+
 def seed_produce():
     """Seed the database with produce items."""
     print("=" * 60)
@@ -146,6 +213,7 @@ def seed_produce():
     print(f"📡 Connecting to MongoDB at {MONGO_HOST}:{MONGO_PORT}...")
     client = MongoClient(f'mongodb://{MONGO_HOST}:{MONGO_PORT}/')
     db = client[MONGO_DB_NAME]
+    fs = gridfs.GridFS(db)
     print("✅ Connected to database")
     print()
 
@@ -160,13 +228,40 @@ def seed_produce():
             print(f"🗑️  Deleted {result.deleted_count} existing produce items")
 
     print()
-    print(f"🌱 Adding {len(PRODUCE_ITEMS)} produce items...")
+    print(f"🌱 Adding {len(PRODUCE_ITEMS)} produce items with images...")
+    print("⚠️  Note: Image fetching may take a few minutes...")
+    print()
 
     # Insert produce items
     inserted_count = 0
+    images_added = 0
+
     for item in PRODUCE_ITEMS:
         # Generate a PLU code (4-digit code for produce)
         plu = f"4{1000 + inserted_count}"
+
+        print(f"[{inserted_count + 1}/{len(PRODUCE_ITEMS)}] Processing: {item['name']}")
+
+        # Try to fetch image from Google Images
+        image_ids = []
+        # try:
+        #     print(f"  🔍 Searching for image...")
+        #     image_urls = search_google_images(item["name"], max_results=1)
+
+        #     if image_urls and len(image_urls) > 0:
+        #         image_id = download_and_store_image(
+        #             image_urls[0],
+        #             f"{item['name']}.jpg",
+        #             db,
+        #             fs
+        #         )
+        #         if image_id:
+        #             image_ids.append(image_id)
+        #             images_added += 1
+        #     else:
+        #         print(f"  ⚠️  No images found for {item['name']}")
+        # except Exception as e:
+        #     print(f"  ⚠️  Error fetching image: {str(e)}")
 
         product = {
             "product_type": "food",
@@ -175,7 +270,8 @@ def seed_produce():
             "brand": "Fresh Produce",
             "price": item["price"],
             "category": item["category"],
-            "images": [],
+            "images": image_ids,
+            "image_source": "Google Images" if image_ids else None,
             "nutrition": {
                 "serving_size": "1 item",
                 "calories": 0,
@@ -195,19 +291,20 @@ def seed_produce():
 
         db.products.insert_one(product)
         inserted_count += 1
-
-        if inserted_count % 10 == 0:
-            print(f"  Added {inserted_count} items...")
+        print()
 
     print()
     print("=" * 60)
     print(f"✅ Successfully added {inserted_count} produce items!")
+    print(f"📷 Images added: {images_added}/{inserted_count}")
     print("=" * 60)
     print()
     print("Items are now searchable by:")
     print("  - PLU codes (4-digit codes: 41000-41099)")
     print("  - Product names (e.g., 'Apples', 'Bananas')")
     print("  - Categories (Fruits, Vegetables, Herbs)")
+    print()
+    print("💡 Tip: View these items on the product lookup page!")
     print()
 
 if __name__ == "__main__":

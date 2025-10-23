@@ -40,43 +40,36 @@
           </v-text-field>
         </div>
 
-        <!-- Search Results -->
-        <div class="search-results" v-if="searchResults.length > 0">
-          <v-list class="results-list">
-            <v-list-item
-              v-for="product in searchResults"
+        <!-- Products Display -->
+        <div class="search-results" v-if="displayProducts.length > 0">
+          <!-- Grid Layout for Produce Items -->
+          <div class="products-grid">
+            <div
+              v-for="product in displayProducts"
               :key="product.upc"
-              class="result-item"
+              class="product-card"
               @click="selectProduct(product)"
             >
-              <template v-slot:prepend>
-                <v-avatar size="80" rounded="lg">
-                  <v-img
-                    :src="getImageUrl(product)"
-                    cover
-                  >
-                    <template v-slot:placeholder>
-                      <v-icon size="40" color="grey">mdi-package-variant</v-icon>
-                    </template>
-                  </v-img>
-                </v-avatar>
-              </template>
-
-              <v-list-item-title class="product-name">
-                {{ product.name }}
-              </v-list-item-title>
-
-              <v-list-item-subtitle>
-                {{ product.brand || 'Generic' }}
-              </v-list-item-subtitle>
-
-              <template v-slot:append>
-                <div class="product-price">
-                  ${{ product.price.toFixed(2) }}
-                </div>
-              </template>
-            </v-list-item>
-          </v-list>
+              <div class="product-image">
+                <v-img
+                  :src="getImageUrl(product)"
+                  cover
+                  aspect-ratio="1"
+                >
+                  <template v-slot:placeholder>
+                    <div class="image-placeholder">
+                      <v-icon size="60" color="grey-lighten-1">mdi-food-apple</v-icon>
+                    </div>
+                  </template>
+                </v-img>
+              </div>
+              <div class="product-info">
+                <div class="product-name">{{ product.name }}</div>
+                <div class="product-brand">{{ product.brand || 'Generic' }}</div>
+                <div class="product-price">${{ product.price.toFixed(2) }}</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- No Results -->
@@ -86,11 +79,17 @@
           <p class="text-grey">Try a different search term</p>
         </div>
 
+        <!-- Loading State -->
+        <div class="loading-state" v-else-if="isLoadingProduce">
+          <v-progress-circular indeterminate size="64" color="primary"></v-progress-circular>
+          <p class="text-h6 text-grey mt-4">Loading produce items...</p>
+        </div>
+
         <!-- Empty State -->
-        <div class="empty-state" v-else>
-          <v-icon size="120" color="grey-lighten-2">mdi-magnify</v-icon>
-          <p class="text-h6 text-grey mt-4">Search for products</p>
-          <p class="text-grey">Use the keyboard below to type</p>
+        <div class="empty-state" v-else-if="produceItems.length === 0">
+          <v-icon size="120" color="grey-lighten-2">mdi-food-apple-outline</v-icon>
+          <p class="text-h6 text-grey mt-4">No produce items available</p>
+          <p class="text-grey">Search for other products above</p>
         </div>
 
         <!-- On-Screen Keyboard -->
@@ -106,13 +105,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, defineProps, defineEmits } from 'vue'
+import { ref, watch, defineProps, defineEmits, computed, onMounted } from 'vue'
 import { useCartStore } from '@/store/cart'
 import { api } from '@/services/api'
 import type { Product } from '@/types'
 import OnScreenKeyboard from './OnScreenKeyboard.vue'
 
-defineProps<{
+const props = defineProps<{
   modelValue: boolean
 }>()
 
@@ -123,8 +122,25 @@ const emit = defineEmits<{
 const cartStore = useCartStore()
 const searchQuery = ref('')
 const searchResults = ref<Product[]>([])
+const produceItems = ref<Product[]>([])
 const hasSearched = ref(false)
 const isSearching = ref(false)
+const isLoadingProduce = ref(false)
+
+// Computed property to determine which products to display
+const displayProducts = computed(() => {
+  // If user has typed something, filter produce items
+  if (searchQuery.value.trim().length > 0) {
+    const query = searchQuery.value.toLowerCase()
+    return produceItems.value.filter(product =>
+      product.name.toLowerCase().includes(query) ||
+      (product.brand && product.brand.toLowerCase().includes(query)) ||
+      (product.category && product.category.toLowerCase().includes(query))
+    )
+  }
+  // Otherwise show all produce items
+  return produceItems.value
+})
 
 function getImageUrl(product: Product): string {
   if (product.images && product.images.length > 0) {
@@ -168,13 +184,37 @@ function focusKeyboard() {
   // Keyboard is always visible, nothing to do
 }
 
-// Auto-search when query changes
-watch(searchQuery, () => {
-  if (searchQuery.value.trim().length >= 2) {
-    handleSearch()
-  } else {
-    searchResults.value = []
-    hasSearched.value = false
+// Load all produce items
+async function loadProduceItems() {
+  isLoadingProduce.value = true
+
+  try {
+    // Fetch produce items from dedicated endpoint (no auth required)
+    produceItems.value = await api.getProduceItems()
+
+    console.log(`Loaded ${produceItems.value.length} produce items`)
+  } catch (error) {
+    console.error('Error loading produce items:', error)
+    produceItems.value = []
+  } finally {
+    isLoadingProduce.value = false
+  }
+}
+
+// Note: Filtering happens automatically via the displayProducts computed property
+// No need to watch searchQuery for API calls since we filter locally
+
+// Load produce items when dialog opens
+watch(() => props.modelValue, (isOpen) => {
+  if (isOpen && produceItems.value.length === 0) {
+    loadProduceItems()
+  }
+})
+
+// Load produce items on mount if dialog is already open
+onMounted(() => {
+  if (props.modelValue) {
+    loadProduceItems()
   }
 })
 </script>
@@ -208,39 +248,87 @@ watch(searchQuery, () => {
   padding: 16px;
 }
 
-.results-list {
-  background-color: #ffffff;
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  padding: 8px;
+}
+
+.product-card {
+  background: white;
   border-radius: 12px;
-}
-
-.result-item {
-  padding: 16px !important;
-  border-bottom: 1px solid #f0f0f0;
+  overflow: hidden;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
 }
 
-.result-item:hover {
-  background-color: #f5f5f5;
+.product-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
 }
 
-.result-item:last-child {
-  border-bottom: none;
+.product-card:active {
+  transform: translateY(-2px);
+}
+
+.product-image {
+  width: 100%;
+  aspect-ratio: 1;
+  background: #f5f5f5;
+  position: relative;
+  overflow: hidden;
+}
+
+.image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%);
+}
+
+.product-info {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
 }
 
 .product-name {
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 600;
+  color: #333;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  min-height: 2.6em;
+}
+
+.product-brand {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 4px;
 }
 
 .product-price {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 700;
   color: #2e7d32;
+  margin-top: auto;
 }
 
 .no-results,
-.empty-state {
+.empty-state,
+.loading-state {
   flex: 1;
   display: flex;
   flex-direction: column;

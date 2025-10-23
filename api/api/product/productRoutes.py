@@ -10,7 +10,7 @@ import hashlib
 from typing import Dict, Union
 import json
 import logging
-from util.OpenFoodFactsUtil import lookup_product_by_upc as openfoodfacts_lookup
+from util.OpenFoodFactsUtil import openfoodfacts_lookup
 from util.BookLookupUtil import lookup_book_by_isbn
 import requests
 
@@ -201,10 +201,8 @@ async def create_product(
 
 
 @productRoutes.get("")
-async def get_all_products(
-    current_user: Annotated[UserModel, Depends(get_current_user('user'))]
-):
-    """Get all products with appropriate models based on product type."""
+async def get_all_products():
+    """Get all products with appropriate models based on product type. No auth required."""
     products = []
 
     for product in db.products.find():
@@ -218,6 +216,28 @@ async def get_all_products(
             products.append(FoodProduct(**product).model_dump(exclude_none=True))
         else:
             products.append(Product(**product).model_dump(exclude_none=True))
+
+    return products
+
+
+@productRoutes.get("/produce")
+async def get_produce_items():
+    """Get all produce items (Fresh Produce brand or Fruits/Vegetables/Herbs category). No auth required."""
+    products = []
+
+    # Query for products with brand "Fresh Produce" OR category in Fruits/Vegetables/Herbs
+    query = {
+        "$or": [
+            {"brand": "Fresh Produce"},
+            {"category": {"$in": ["Fruits", "Vegetables", "Herbs"]}}
+        ]
+    }
+
+    for product in db.products.find(query):
+        product['id'] = str(product.pop('_id'))
+
+        # All produce items should be food type
+        products.append(FoodProduct(**product).model_dump(exclude_none=True))
 
     return products
 
@@ -249,11 +269,7 @@ def _detect_product_type(upc: str) -> str:
 
 
 @productRoutes.get("/upc/{upc}")
-async def get_product_by_upc(
-    upc: str,
-    cache: bool = True,
-    product_type: Optional[str] = None
-):
+async def get_product_by_upc( upc: str, cache: bool = True, product_type: Optional[str] = None):
     """
     Get a single product by UPC or ISBN.
     First checks the database. If not found, automatically detects whether
@@ -311,9 +327,9 @@ async def _lookup_food(upc: str, cache: bool) -> Dict[str, Any]:
         Food product data dictionary
     """
     try:
-        # Don't include store lookups by default as they can be slow/timeout
-        # OpenFoodFacts provides good data and images already
-        product_data = openfoodfacts_lookup(upc, include_stores=False)
+        # Use async version for better performance in FastAPI
+        # Include store lookups (Amazon) to get pricing and images
+        product_data = await openfoodfacts_lookup.lookup_by_upc_async(upc, include_stores=True)
 
         if product_data is None:
             raise HTTPException(
@@ -328,13 +344,30 @@ async def _lookup_food(upc: str, cache: bool) -> Dict[str, Any]:
         if product_data.get('price') is None:
             product_data['price'] = 4.04
 
-        # Download and store images
+        # Download and store images - try Amazon first, then OpenFoodFacts
         image_ids = []
         image_source = None
 
-        # Download image from OpenFoodFacts if available
-        if product_data.get('image_url'):
+        # 1. Try Amazon/store images first
+        try:
+            stores = product_data.get('stores', [])
+            if stores and len(stores) > 0 and stores[0].get('image_url'):
+                logger.info(f"Trying to download image from {stores[0].get('store_name', 'store')}")
+                image_id = await _download_and_store_image(
+                    stores[0]['image_url'],
+                    f"{product_data.get('name', 'product')}.jpg"
+                )
+                if image_id:
+                    image_ids.append(image_id)
+                    image_source = stores[0].get('store_name', 'External Source')
+                    logger.info(f"Downloaded image from {image_source}")
+        except Exception as e:
+            logger.error(f"Error downloading store image: {str(e)}")
+
+        # 2. Fallback to OpenFoodFacts image if Amazon fails
+        if not image_ids and product_data.get('image_url'):
             try:
+                logger.info("Using OpenFoodFacts image as fallback")
                 image_id = await _download_and_store_image(
                     product_data['image_url'],
                     f"{product_data.get('name', 'product')}.jpg"
@@ -342,8 +375,9 @@ async def _lookup_food(upc: str, cache: bool) -> Dict[str, Any]:
                 if image_id:
                     image_ids.append(image_id)
                     image_source = 'OpenFoodFacts'
+                    logger.info(f"Downloaded image from OpenFoodFacts")
             except Exception as e:
-                logger.error(f"Error downloading main image: {str(e)}")
+                logger.error(f"Error downloading OpenFoodFacts image: {str(e)}")
 
         # Remove the image_url from product_data as we now have GridFS IDs
         product_data.pop('image_url', None)
