@@ -63,6 +63,12 @@ class ApiService {
     return response.data
   }
 
+  async getRecentProducts(limit: number = 100): Promise<Product[]> {
+    // Get recently added/modified products - no authentication required
+    const response = await axios.get<Product[]>(`${API_URL}/products/recent?limit=${limit}`)
+    return response.data
+  }
+
   getImageUrl(imageId: string): string {
     // Image URLs don't require authentication
     return `${API_URL}/files/${imageId}/image`
@@ -82,6 +88,15 @@ class ApiService {
       `${API_URL}/products/${productId}`,
       { headers: this.getHeaders() }
     )
+  }
+
+  async resetDatabase(): Promise<{ message: string; deleted: any }> {
+    const response = await axios.post(
+      `${API_URL}/products/reset`,
+      {},
+      { headers: this.getHeaders() }
+    )
+    return response.data
   }
 
   async uploadImage(file: File): Promise<{ id: string }> {

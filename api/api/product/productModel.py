@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
-from datetime import date
+from datetime import datetime
 
 
 class NutritionInfo(BaseModel):
@@ -33,6 +33,7 @@ class Product(BaseModel):
     images: Optional[List[str]] = Field(title="Product Images", description="List of image IDs for the product", default=None)
     image_source: Optional[str] = Field(title="Image Source", description="Store where the images were obtained", default=None)
     brand: Optional[str] = Field(title="Brand", description="Product brand name", default=None)
+    last_modified: Optional[datetime] = Field(title="Last Modified", description="Timestamp when the product was last modified", default=None)
 
 
 class FoodProduct(Product):

@@ -25,24 +25,26 @@
       <div v-if="cartStore.lastScannedItem" class="item-display">
         <!-- Product Image -->
         <v-card class="product-image-card" elevation="4">
-          <v-img
-            :src="getImageUrl(cartStore.lastScannedItem)"
-            height="400"
-            contain
-            class="product-image"
-          >
-            <template v-slot:placeholder>
-              <v-row
-                class="fill-height ma-0"
-                align="center"
-                justify="center"
-              >
-                <v-icon size="120" color="grey-lighten-2">
-                  mdi-package-variant
-                </v-icon>
-              </v-row>
-            </template>
-          </v-img>
+          <div class="image-wrapper">
+            <v-img
+              :src="getImageUrl(cartStore.lastScannedItem)"
+              height="400"
+              contain
+              class="product-image"
+            >
+              <template v-slot:placeholder>
+                <v-row
+                  class="fill-height ma-0"
+                  align="center"
+                  justify="center"
+                >
+                  <v-icon size="120" color="grey-lighten-2">
+                    mdi-package-variant
+                  </v-icon>
+                </v-row>
+              </template>
+            </v-img>
+          </div>
         </v-card>
 
         <!-- Product Info -->
@@ -137,45 +139,69 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { inject, ref } from 'vue'
+<script>
+import { inject, ref, watch } from 'vue'
 import { useCartStore } from '@/store/cart'
 import { useSettingsStore } from '@/store/settings'
 import { api } from '@/services/api'
 import SettingsPanel from './SettingsPanel.vue'
 
-const cartStore = useCartStore()
-const settingsStore = useSettingsStore()
-const toggleSearch = inject<() => void>('toggleSearch')
-const showSettings = ref(false)
+export default {
+  components: {
+    SettingsPanel
+  },
+  setup() {
+    const cartStore = useCartStore()
+    const settingsStore = useSettingsStore()
+    const toggleSearch = inject('toggleSearch')
+    const showSettings = ref(false)
 
-function getImageUrl(product: any): string {
-  if (product.images && product.images.length > 0) {
-    return api.getImageUrl(product.images[0])
-  }
-  return product.image_url || ''
-}
+    // Close settings panel when a product is scanned
+    watch(() => cartStore.lastScannedItem, (newItem) => {
+      if (newItem && showSettings.value) {
+        showSettings.value = false
+      }
+    })
 
-function getNutritionColor(grade: string): string {
-  const gradeUpper = grade.toUpperCase()
-  const colors: Record<string, string> = {
-    'A': 'success',
-    'B': 'light-green',
-    'C': 'warning',
-    'D': 'orange',
-    'E': 'error'
-  }
-  return colors[gradeUpper] || 'grey'
-}
+    function getImageUrl(product) {
+      if (product.images && product.images.length > 0) {
+        return api.getImageUrl(product.images[0])
+      }
+      return product.image_url || ''
+    }
 
-function handleClearCart() {
-  if (confirm('Are you sure you want to clear the cart?')) {
-    cartStore.clearCart()
+    function getNutritionColor(grade) {
+      const gradeUpper = grade.toUpperCase()
+      const colors = {
+        'A': 'success',
+        'B': 'light-green',
+        'C': 'warning',
+        'D': 'orange',
+        'E': 'error'
+      }
+      return colors[gradeUpper] || 'grey'
+    }
+
+    function handleClearCart() {
+      if (confirm('Are you sure you want to clear the cart?')) {
+        cartStore.clearCart()
+      }
+    }
+
+    return {
+      cartStore,
+      settingsStore,
+      toggleSearch,
+      showSettings,
+      getImageUrl,
+      getNutritionColor,
+      handleClearCart
+    }
   }
 }
 </script>
 
-<style scoped>
+<style >
 .item-details-container {
   display: flex;
   flex-direction: column;
@@ -183,9 +209,10 @@ function handleClearCart() {
 }
 
 .content-area {
+  margin-top: 64px;
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 32px 24px 24px 24px;
 }
 
 .item-display {
@@ -195,12 +222,18 @@ function handleClearCart() {
 
 .product-image-card {
   margin-bottom: 32px;
+  margin-top: 8px;
   border-radius: 16px;
   overflow: hidden;
 }
 
+.image-wrapper {
+  padding: 16px;
+}
+
 .product-image {
   background-color: #f5f5f5;
+  border-radius: 8px;
 }
 
 .product-info {
@@ -248,6 +281,10 @@ function handleClearCart() {
 .action-buttons {
   padding: 24px;
   background-color: #ffffff;
-  border-top: 2px solid #e0e0e0;
+  border-top: 2px solid #e10e0e0;
+}
+
+.v-img__img--contain {
+  background-color: white !important;
 }
 </style>

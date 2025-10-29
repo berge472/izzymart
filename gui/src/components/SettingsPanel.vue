@@ -106,6 +106,24 @@
           </div>
         </div>
 
+        <!-- Screensaver -->
+        <div class="setting-section">
+          <h3 class="setting-label">
+            <v-icon>mdi-television-ambient-light</v-icon>
+            Screensaver
+          </h3>
+          <v-btn
+            color="primary"
+            variant="outlined"
+            prepend-icon="mdi-monitor"
+            block
+            @click="activateScreensaver"
+          >
+            Activate Screensaver
+          </v-btn>
+          <p class="setting-hint">Screensaver activates automatically after 5 minutes of inactivity</p>
+        </div>
+
         <!-- System Info -->
         <div class="setting-section">
           <h3 class="setting-label">
@@ -145,69 +163,97 @@
   </v-navigation-drawer>
 </template>
 
-<script setup lang="ts">
-import { ref, watch, defineProps, defineEmits } from 'vue'
-import { useSettingsStore, type ThemeColor } from '@/store/settings'
+<script>
+import { ref, watch, inject } from 'vue'
+import { useSettingsStore } from '@/store/settings'
 
-const settingsStore = useSettingsStore()
+export default {
+  props: {
+    modelValue: {
+      type: Boolean,
+      required: true
+    }
+  },
+  emits: ['update:modelValue'],
+  setup(props, { emit }) {
+    const settingsStore = useSettingsStore()
+    const activateScreensaverFn = inject('activateScreensaver')
 
-const props = defineProps<{
-  modelValue: boolean
-}>()
+    const isOpen = ref(props.modelValue)
+    const localStoreName = ref(settingsStore.storeName)
+    const localTheme = ref(settingsStore.selectedTheme)
+    const localCameraScanning = ref(settingsStore.cameraScanningEnabled)
 
-const emit = defineEmits<{
-  'update:modelValue': [value: boolean]
-}>()
+    // App version from package.json
+    const appVersion = ref('v0.1.0')
 
-const isOpen = ref(props.modelValue)
-const localStoreName = ref(settingsStore.storeName)
-const localTheme = ref<ThemeColor>(settingsStore.selectedTheme)
-const localCameraScanning = ref(settingsStore.cameraScanningEnabled)
+    // Sync with parent
+    watch(() => props.modelValue, (newValue) => {
+      isOpen.value = newValue
+      if (newValue) {
+        // Reset local values when opening
+        localStoreName.value = settingsStore.storeName
+        localTheme.value = settingsStore.selectedTheme
+        localCameraScanning.value = settingsStore.cameraScanningEnabled
+      }
+    })
 
-// App version from package.json
-const appVersion = ref('v0.1.0')
+    watch(isOpen, (newValue) => {
+      emit('update:modelValue', newValue)
+    })
 
-// Sync with parent
-watch(() => props.modelValue, (newValue) => {
-  isOpen.value = newValue
-  if (newValue) {
-    // Reset local values when opening
-    localStoreName.value = settingsStore.storeName
-    localTheme.value = settingsStore.selectedTheme
-    localCameraScanning.value = settingsStore.cameraScanningEnabled
+    function close() {
+      isOpen.value = false
+    }
+
+    function isThemeSelected(theme) {
+      return theme.name === localTheme.value.name
+    }
+
+    function selectTheme(theme) {
+      localTheme.value = theme
+      // Apply immediately for preview
+      const root = document.documentElement
+      root.style.setProperty('--color-primary', theme.primary)
+      root.style.setProperty('--color-secondary', theme.secondary)
+      root.style.setProperty('--color-accent', theme.accent)
+    }
+
+    function saveSettings() {
+      settingsStore.setStoreName(localStoreName.value)
+      settingsStore.setTheme(localTheme.value)
+      settingsStore.setCameraScanning(localCameraScanning.value)
+      close()
+    }
+
+    function handleRefresh() {
+      window.location.reload()
+    }
+
+    function activateScreensaver() {
+      // Close the settings panel first
+      close()
+      // Then activate the screensaver
+      if (activateScreensaverFn) {
+        activateScreensaverFn()
+      }
+    }
+
+    return {
+      settingsStore,
+      isOpen,
+      localStoreName,
+      localTheme,
+      localCameraScanning,
+      appVersion,
+      close,
+      isThemeSelected,
+      selectTheme,
+      saveSettings,
+      handleRefresh,
+      activateScreensaver
+    }
   }
-})
-
-watch(isOpen, (newValue) => {
-  emit('update:modelValue', newValue)
-})
-
-function close() {
-  isOpen.value = false
-}
-
-function isThemeSelected(theme: ThemeColor): boolean {
-  return theme.name === localTheme.value.name
-}
-
-function selectTheme(theme: ThemeColor) {
-  localTheme.value = theme
-  // Apply immediately for preview
-  const root = document.documentElement
-  root.style.setProperty('--color-primary', theme.primary)
-  root.style.setProperty('--color-secondary', theme.secondary)
-  root.style.setProperty('--color-accent', theme.accent)
-}
-
-function saveSettings() {
-  settingsStore.setStoreName(localStoreName.value)
-  settingsStore.setTheme(localTheme.value)
-  settingsStore.setCameraScanning(localCameraScanning.value)
-  close()
-}
-
-function handleRefresh() {
-  window.location.reload()
 }
 </script>
 

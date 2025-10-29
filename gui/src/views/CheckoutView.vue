@@ -16,23 +16,115 @@
     <SearchDialog v-model="showSearch" />
 
     <!-- Scanner Input Handler -->
-    <ScannerInput />
+    <ScannerInput @barcode-detected="handleBarcodeDetected" />
+
+    <!-- Screensaver -->
+    <Screensaver v-model="showScreensaver" />
   </v-container>
 </template>
 
-<script setup lang="ts">
-import { ref, provide } from 'vue'
+<script>
+import { ref, provide, watch, onMounted } from 'vue'
 import ItemDetails from '@/components/ItemDetails.vue'
 import CartList from '@/components/CartList.vue'
 import SearchDialog from '@/components/SearchDialog.vue'
 import ScannerInput from '@/components/ScannerInput.vue'
+import Screensaver from '@/components/Screensaver.vue'
+import { useInactivity } from '@/composables/useInactivity'
+import { useCartStore } from '@/store/cart'
+import { getUrlParam } from '@/utils/urlParams'
+import { api } from '@/services/api'
 
-const showSearch = ref(false)
+export default {
+  components: {
+    ItemDetails,
+    CartList,
+    SearchDialog,
+    ScannerInput,
+    Screensaver
+  },
+  setup() {
+    const showSearch = ref(false)
+    const showScreensaver = ref(false)
+    const cartStore = useCartStore()
 
-// Provide search dialog toggle for child components
-provide('toggleSearch', () => {
-  showSearch.value = !showSearch.value
-})
+    // Provide search dialog toggle for child components
+    provide('toggleSearch', () => {
+      showSearch.value = !showSearch.value
+    })
+
+    // Track user inactivity - trigger screensaver after 5 minutes (300000ms)
+    const { resetTimer } = useInactivity(300000, () => {
+      // Only activate screensaver if no dialogs are open
+      if (!showSearch.value) {
+        showScreensaver.value = true
+      }
+    })
+
+    // Reset inactivity timer when dialogs open/close
+    watch(showSearch, (isOpen) => {
+      if (!isOpen) {
+        resetTimer()
+      }
+    })
+
+    // Reset inactivity timer when screensaver closes
+    watch(showScreensaver, (isActive) => {
+      if (!isActive) {
+        resetTimer()
+      }
+    })
+
+    // Watch for product scans - dismiss screensaver and reset timer
+    watch(() => cartStore.lastScannedItem, (newItem) => {
+      if (newItem) {
+        // Dismiss screensaver if active
+        if (showScreensaver.value) {
+          showScreensaver.value = false
+        }
+        // Reset the inactivity timer
+        resetTimer()
+      }
+    })
+
+    // Function to manually activate screensaver (for settings button)
+    function activateScreensaver() {
+      showScreensaver.value = true
+    }
+
+    // Provide screensaver activation for child components
+    provide('activateScreensaver', activateScreensaver)
+
+    // Handle barcode detection - close all dialogs
+    function handleBarcodeDetected() {
+      // Close search dialog if open
+      if (showSearch.value) {
+        showSearch.value = false
+      }
+      // Screensaver will auto-close via the cart store watcher
+    }
+
+    // Check for UPC parameter on mount (for testing)
+    onMounted(async () => {
+      const upc = getUrlParam('upc')
+      if (upc) {
+        try {
+          console.log(`Loading product from URL parameter: ${upc}`)
+          const product = await api.getProductByUPC(upc)
+          cartStore.addItem(product)
+        } catch (error) {
+          console.error('Error loading product from UPC parameter:', error)
+        }
+      }
+    })
+
+    return {
+      showSearch,
+      showScreensaver,
+      handleBarcodeDetected
+    }
+  }
+}
 </script>
 
 <style scoped>

@@ -104,119 +104,139 @@
   </v-dialog>
 </template>
 
-<script setup lang="ts">
-import { ref, watch, defineProps, defineEmits, computed, onMounted } from 'vue'
+<script>
+import { ref, watch, computed, onMounted } from 'vue'
 import { useCartStore } from '@/store/cart'
 import { api } from '@/services/api'
-import type { Product } from '@/types'
 import OnScreenKeyboard from './OnScreenKeyboard.vue'
 
-const props = defineProps<{
-  modelValue: boolean
-}>()
+export default {
+  components: {
+    OnScreenKeyboard
+  },
+  props: {
+    modelValue: {
+      type: Boolean,
+      required: true
+    }
+  },
+  emits: ['update:modelValue'],
+  setup(props, { emit }) {
+    const cartStore = useCartStore()
+    const searchQuery = ref('')
+    const searchResults = ref([])
+    const produceItems = ref([])
+    const hasSearched = ref(false)
+    const isSearching = ref(false)
+    const isLoadingProduce = ref(false)
 
-const emit = defineEmits<{
-  (e: 'update:modelValue', value: boolean): void
-}>()
+    // Computed property to determine which products to display
+    const displayProducts = computed(() => {
+      // If user has typed something, filter produce items
+      if (searchQuery.value.trim().length > 0) {
+        const query = searchQuery.value.toLowerCase()
+        return produceItems.value.filter(product =>
+          product.name.toLowerCase().includes(query) ||
+          (product.brand && product.brand.toLowerCase().includes(query)) ||
+          (product.category && product.category.toLowerCase().includes(query))
+        )
+      }
+      // Otherwise show all produce items
+      return produceItems.value
+    })
 
-const cartStore = useCartStore()
-const searchQuery = ref('')
-const searchResults = ref<Product[]>([])
-const produceItems = ref<Product[]>([])
-const hasSearched = ref(false)
-const isSearching = ref(false)
-const isLoadingProduce = ref(false)
+    function getImageUrl(product) {
+      if (product.images && product.images.length > 0) {
+        return api.getImageUrl(product.images[0])
+      }
+      return product.image_url || ''
+    }
 
-// Computed property to determine which products to display
-const displayProducts = computed(() => {
-  // If user has typed something, filter produce items
-  if (searchQuery.value.trim().length > 0) {
-    const query = searchQuery.value.toLowerCase()
-    return produceItems.value.filter(product =>
-      product.name.toLowerCase().includes(query) ||
-      (product.brand && product.brand.toLowerCase().includes(query)) ||
-      (product.category && product.category.toLowerCase().includes(query))
-    )
+    async function handleSearch() {
+      if (searchQuery.value.trim().length < 2) {
+        return
+      }
+
+      hasSearched.value = true
+      isSearching.value = true
+
+      try {
+        const results = await api.searchProducts(searchQuery.value)
+        searchResults.value = results
+      } catch (error) {
+        console.error('Search error:', error)
+        searchResults.value = []
+      } finally {
+        isSearching.value = false
+      }
+    }
+
+    function selectProduct(product) {
+      cartStore.addItem(product)
+      emit('update:modelValue', false)
+      clearSearch()
+    }
+
+    function clearSearch() {
+      searchQuery.value = ''
+      searchResults.value = []
+      hasSearched.value = false
+    }
+
+    function focusKeyboard() {
+      // Keyboard is always visible, nothing to do
+    }
+
+    // Load all produce items
+    async function loadProduceItems() {
+      isLoadingProduce.value = true
+
+      try {
+        // Fetch produce items from dedicated endpoint (no auth required)
+        produceItems.value = await api.getProduceItems()
+
+        console.log(`Loaded ${produceItems.value.length} produce items`)
+      } catch (error) {
+        console.error('Error loading produce items:', error)
+        produceItems.value = []
+      } finally {
+        isLoadingProduce.value = false
+      }
+    }
+
+    // Note: Filtering happens automatically via the displayProducts computed property
+    // No need to watch searchQuery for API calls since we filter locally
+
+    // Load produce items when dialog opens
+    watch(() => props.modelValue, (isOpen) => {
+      if (isOpen && produceItems.value.length === 0) {
+        loadProduceItems()
+      }
+    })
+
+    // Load produce items on mount if dialog is already open
+    onMounted(() => {
+      if (props.modelValue) {
+        loadProduceItems()
+      }
+    })
+
+    return {
+      searchQuery,
+      searchResults,
+      produceItems,
+      hasSearched,
+      isSearching,
+      isLoadingProduce,
+      displayProducts,
+      getImageUrl,
+      handleSearch,
+      selectProduct,
+      clearSearch,
+      focusKeyboard
+    }
   }
-  // Otherwise show all produce items
-  return produceItems.value
-})
-
-function getImageUrl(product: Product): string {
-  if (product.images && product.images.length > 0) {
-    return api.getImageUrl(product.images[0])
-  }
-  return product.image_url || ''
 }
-
-async function handleSearch() {
-  if (searchQuery.value.trim().length < 2) {
-    return
-  }
-
-  hasSearched.value = true
-  isSearching.value = true
-
-  try {
-    const results = await api.searchProducts(searchQuery.value)
-    searchResults.value = results
-  } catch (error) {
-    console.error('Search error:', error)
-    searchResults.value = []
-  } finally {
-    isSearching.value = false
-  }
-}
-
-function selectProduct(product: Product) {
-  cartStore.addItem(product)
-  emit('update:modelValue', false)
-  clearSearch()
-}
-
-function clearSearch() {
-  searchQuery.value = ''
-  searchResults.value = []
-  hasSearched.value = false
-}
-
-function focusKeyboard() {
-  // Keyboard is always visible, nothing to do
-}
-
-// Load all produce items
-async function loadProduceItems() {
-  isLoadingProduce.value = true
-
-  try {
-    // Fetch produce items from dedicated endpoint (no auth required)
-    produceItems.value = await api.getProduceItems()
-
-    console.log(`Loaded ${produceItems.value.length} produce items`)
-  } catch (error) {
-    console.error('Error loading produce items:', error)
-    produceItems.value = []
-  } finally {
-    isLoadingProduce.value = false
-  }
-}
-
-// Note: Filtering happens automatically via the displayProducts computed property
-// No need to watch searchQuery for API calls since we filter locally
-
-// Load produce items when dialog opens
-watch(() => props.modelValue, (isOpen) => {
-  if (isOpen && produceItems.value.length === 0) {
-    loadProduceItems()
-  }
-})
-
-// Load produce items on mount if dialog is already open
-onMounted(() => {
-  if (props.modelValue) {
-    loadProduceItems()
-  }
-})
 </script>
 
 <style scoped>

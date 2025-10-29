@@ -10,18 +10,26 @@
   </div>
 </template>
 
-<script setup lang="ts">
+<script>
 import { ref, onMounted } from 'vue'
 import { isDebugMode } from '@/utils/urlParams'
 
-const isDebug = ref(false)
+export default {
+  setup() {
+    const isDebug = ref(false)
 
-onMounted(() => {
-  isDebug.value = isDebugMode()
-  if (isDebug.value) {
-    console.log('🐛 Debug mode is ENABLED - API caching is disabled')
+    onMounted(() => {
+      isDebug.value = isDebugMode()
+      if (isDebug.value) {
+        console.log('🐛 Debug mode is ENABLED - API caching is disabled')
+      }
+    })
+
+    return {
+      isDebug
+    }
   }
-})
+}
 </script>
 
 <style scoped>

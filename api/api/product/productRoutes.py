@@ -13,6 +13,7 @@ import logging
 from util.OpenFoodFactsUtil import openfoodfacts_lookup
 from util.BookLookupUtil import lookup_book_by_isbn
 import requests
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,8 @@ async def create_product(
         "price": price,
         "tags": parsed_tags,
         "metadata": parsed_metadata,
-        "images": image_ids
+        "images": image_ids,
+        "last_modified": datetime.utcnow()
     }
 
     # Remove None values
@@ -206,6 +208,34 @@ async def get_all_products():
     products = []
 
     for product in db.products.find():
+        product['id'] = str(product.pop('_id'))
+
+        # Return appropriate model based on product_type
+        product_type = product.get('product_type', 'generic')
+        if product_type == 'book':
+            products.append(BookProduct(**product).model_dump(exclude_none=True))
+        elif product_type == 'food':
+            products.append(FoodProduct(**product).model_dump(exclude_none=True))
+        else:
+            products.append(Product(**product).model_dump(exclude_none=True))
+
+    return products
+
+
+@productRoutes.get("/recent")
+async def get_recent_products(limit: int = 100):
+    """
+    Get recently added/modified products sorted by last_modified timestamp.
+    No auth required.
+
+    Args:
+        limit: Maximum number of products to return (default: 100)
+    """
+    products = []
+
+    # Find products sorted by last_modified (newest first)
+    # Filter to only include products that have last_modified field
+    for product in db.products.find({"last_modified": {"$exists": True}}).sort("last_modified", -1).limit(limit):
         product['id'] = str(product.pop('_id'))
 
         # Return appropriate model based on product_type
@@ -390,6 +420,9 @@ async def _lookup_food(upc: str, cache: bool) -> Dict[str, Any]:
 
         # Only save to database if caching is enabled
         if cache:
+            # Add last_modified timestamp
+            product_data['last_modified'] = datetime.utcnow()
+
             # Insert into database
             result = db.products.insert_one(product_data)
             product_id = str(result.inserted_id)
@@ -472,6 +505,9 @@ async def _lookup_book(isbn: str, cache: bool) -> Dict[str, Any]:
 
         # Only save to database if caching is enabled
         if cache:
+            # Add last_modified timestamp
+            book_data['last_modified'] = datetime.utcnow()
+
             # Insert into database
             result = db.products.insert_one(book_data)
             product_id = str(result.inserted_id)
@@ -547,6 +583,9 @@ async def update_product(
 
     product_dict = product.model_dump(exclude_none=True)
     product_dict.pop('id', None)
+
+    # Add last_modified timestamp
+    product_dict['last_modified'] = datetime.utcnow()
 
     # Handle image reference updates
     old_images = set(existing_product.get("images", []))

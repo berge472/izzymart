@@ -24,84 +24,94 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, defineProps, defineEmits } from 'vue'
+<script>
+import { ref } from 'vue'
 
-const props = defineProps<{
-  modelValue: string
-}>()
+export default {
+  props: {
+    modelValue: {
+      type: String,
+      required: true
+    }
+  },
+  emits: ['update:modelValue', 'search'],
+  setup(props, { emit }) {
+    const isShifted = ref(false)
 
-const emit = defineEmits<{
-  (e: 'update:modelValue', value: string): void
-  (e: 'search'): void
-}>()
+    const layout = [
+      ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+      ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+      ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
+      ['shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', 'backspace'],
+      ['space', 'search']
+    ]
 
-const isShifted = ref(false)
+    function handleKeyPress(key) {
+      const currentValue = props.modelValue
 
-const layout = [
-  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-  ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
-  ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
-  ['shift', 'z', 'x', 'c', 'v', 'b', 'n', 'm', 'backspace'],
-  ['space', 'search']
-]
+      switch (key) {
+        case 'backspace':
+          emit('update:modelValue', currentValue.slice(0, -1))
+          break
 
-function handleKeyPress(key: string) {
-  const currentValue = props.modelValue
+        case 'space':
+          emit('update:modelValue', currentValue + ' ')
+          break
 
-  switch (key) {
-    case 'backspace':
-      emit('update:modelValue', currentValue.slice(0, -1))
-      break
+        case 'shift':
+          isShifted.value = !isShifted.value
+          break
 
-    case 'space':
-      emit('update:modelValue', currentValue + ' ')
-      break
+        case 'search':
+          emit('search')
+          break
 
-    case 'shift':
-      isShifted.value = !isShifted.value
-      break
+        default: {
+          const char = isShifted.value ? key.toUpperCase() : key
+          emit('update:modelValue', currentValue + char)
 
-    case 'search':
-      emit('search')
-      break
-
-    default: {
-      const char = isShifted.value ? key.toUpperCase() : key
-      emit('update:modelValue', currentValue + char)
-
-      // Auto-reset shift after typing a character
-      if (isShifted.value && key !== 'shift') {
-        isShifted.value = false
+          // Auto-reset shift after typing a character
+          if (isShifted.value && key !== 'shift') {
+            isShifted.value = false
+          }
+          break
+        }
       }
-      break
+    }
+
+    function getKeyClass(key) {
+      const classes = []
+
+      if (key === 'shift' && isShifted.value) {
+        classes.push('active')
+      }
+
+      if (['shift', 'backspace', 'space', 'search'].includes(key)) {
+        classes.push('special-key')
+      }
+
+      if (key === 'search') {
+        classes.push('search-key')
+      }
+
+      return classes.join(' ')
+    }
+
+    function getKeySize(key) {
+      if (key === 'space') return 'x-large'
+      if (key === 'search') return 'x-large'
+      if (key === 'backspace' || key === 'shift') return 'large'
+      return 'large'
+    }
+
+    return {
+      isShifted,
+      layout,
+      handleKeyPress,
+      getKeyClass,
+      getKeySize
     }
   }
-}
-
-function getKeyClass(key: string): string {
-  const classes = []
-
-  if (key === 'shift' && isShifted.value) {
-    classes.push('active')
-  }
-
-  if (['shift', 'backspace', 'space', 'search'].includes(key)) {
-    classes.push('special-key')
-  }
-
-  if (key === 'search') {
-    classes.push('search-key')
-  }
-
-  return classes.join(' ')
-}
-
-function getKeySize(key: string): string {
-  if (key === 'space') return 'x-large'
-  if (key === 'search') return 'x-large'
-  if (key === 'backspace' || key === 'shift') return 'large'
-  return 'large'
 }
 </script>
 

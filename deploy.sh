@@ -23,14 +23,14 @@ echo "========================================"
 echo ""
 echo "Building API image..."
 cd api
-docker build -t ${API_IMAGE}:${VERSION} .
+docker build -t ${API_IMAGE}:${VERSION} . 
 echo "✓ API image built successfully"
 
 # Build GUI image
 echo ""
 echo "Building GUI image..."
 cd ../gui
-docker build -t ${GUI_IMAGE}:${VERSION} .
+docker build -t ${GUI_IMAGE}:${VERSION} . --no-cache
 echo "✓ GUI image built successfully"
 
 # Push images

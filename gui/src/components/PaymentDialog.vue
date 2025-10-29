@@ -81,78 +81,90 @@
   </v-dialog>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, watch, defineProps, defineEmits } from 'vue'
+<script>
+import { ref, computed, watch } from 'vue'
 
-const props = defineProps<{
-  modelValue: boolean
-}>()
+export default {
+  props: {
+    modelValue: {
+      type: Boolean,
+      required: true
+    }
+  },
+  emits: ['update:modelValue', 'payment-complete'],
+  setup(props, { emit }) {
+    const isOpen = ref(props.modelValue)
+    const pin = ref('')
+    const pinLength = ref(0)
+    const paymentState = ref('entry')
 
-const emit = defineEmits<{
-  'update:modelValue': [value: boolean]
-  'payment-complete': []
-}>()
+    // Computed property to display PIN as asterisks
+    const pinDisplay = computed(() => {
+      return '*'.repeat(pinLength.value)
+    })
 
-const isOpen = ref(props.modelValue)
-const pin = ref('')
-const pinLength = ref(0)
-const paymentState = ref<'entry' | 'processing' | 'approved'>('entry')
+    // Sync with parent
+    watch(() => props.modelValue, (newValue) => {
+      isOpen.value = newValue
+      if (newValue) {
+        // Reset state when opening
+        pin.value = ''
+        pinLength.value = 0
+        paymentState.value = 'entry'
+      }
+    })
 
-// Computed property to display PIN as asterisks
-const pinDisplay = computed(() => {
-  return '*'.repeat(pinLength.value)
-})
+    watch(isOpen, (newValue) => {
+      emit('update:modelValue', newValue)
+    })
 
-// Sync with parent
-watch(() => props.modelValue, (newValue) => {
-  isOpen.value = newValue
-  if (newValue) {
-    // Reset state when opening
-    pin.value = ''
-    pinLength.value = 0
-    paymentState.value = 'entry'
+    function addDigit(digit) {
+      if (pinLength.value < 12) {
+        pin.value += digit.toString()
+        pinLength.value = pin.value.length
+      }
+    }
+
+    function cancel() {
+      isOpen.value = false
+    }
+
+    function playCashRegisterSound() {
+      // Play the cash register MP3 file
+      const audio = new Audio('/cash_register.mp3')
+      audio.volume = 0.7
+      audio.play().catch(error => {
+        console.error('Error playing cash register sound:', error)
+      })
+    }
+
+    async function processPayment() {
+      paymentState.value = 'processing'
+
+      // Simulate payment processing
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Show approval and play cash register sound
+      paymentState.value = 'approved'
+      playCashRegisterSound()
+
+      // Wait a bit, then close and emit completion
+      setTimeout(() => {
+        emit('payment-complete')
+        isOpen.value = false
+      }, 2500)
+    }
+
+    return {
+      isOpen,
+      pinLength,
+      paymentState,
+      pinDisplay,
+      addDigit,
+      cancel,
+      processPayment
+    }
   }
-})
-
-watch(isOpen, (newValue) => {
-  emit('update:modelValue', newValue)
-})
-
-function addDigit(digit: number) {
-  if (pinLength.value < 12) {
-    pin.value += digit.toString()
-    pinLength.value = pin.value.length
-  }
-}
-
-function cancel() {
-  isOpen.value = false
-}
-
-function playCashRegisterSound() {
-  // Play the cash register MP3 file
-  const audio = new Audio('/cash_register.mp3')
-  audio.volume = 0.7
-  audio.play().catch(error => {
-    console.error('Error playing cash register sound:', error)
-  })
-}
-
-async function processPayment() {
-  paymentState.value = 'processing'
-
-  // Simulate payment processing
-  await new Promise(resolve => setTimeout(resolve, 1000))
-
-  // Show approval and play cash register sound
-  paymentState.value = 'approved'
-  playCashRegisterSound()
-
-  // Wait a bit, then close and emit completion
-  setTimeout(() => {
-    emit('payment-complete')
-    isOpen.value = false
-  }, 2500)
 }
 </script>
 

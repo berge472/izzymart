@@ -2,6 +2,11 @@ FROM python:3.12-slim-bullseye
 
 WORKDIR /app
 
+# Create a non-root user early and set up home directory
+RUN useradd -m -u 1000 -s /bin/bash appuser && \
+    mkdir -p /home/appuser/.cache && \
+    chown -R appuser:appuser /home/appuser
+
 # Install system dependencies first
 RUN apt-get update && apt-get install -y \
     apt-transport-https \
@@ -48,19 +53,32 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
-RUN python -m playwright install chromium
+# Set environment variables for Playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/home/appuser/.cache/ms-playwright
+ENV HOME=/home/appuser
+
+# Install Playwright browsers with system dependencies as root
+RUN python -m playwright install --with-deps chromium
 
 # Copy application code
 COPY . /app
 
-# Set environment variables
+# Change ownership of /app to appuser
+RUN chown -R appuser:appuser /app
+
+#cache buster
+RUN echo "Cache bust: $(date)"
+
+# Set additional environment variables
 ENV SEED_DATA=/app/seed
 ENV BACKUP_FOLDER=/data/backup
 ENV PYTHONUNBUFFERED=1
 ENV MONGO_HOST=mongodb
 ENV MONGO_PORT=27017
 ENV MONGO_DB_NAME=izzymart
+
+# Switch to non-root user for runtime
+USER appuser
 
 # Expose port
 EXPOSE 8000

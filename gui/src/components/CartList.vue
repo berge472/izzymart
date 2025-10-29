@@ -135,57 +135,73 @@
   </div>
 </template>
 
-<script setup lang="ts">
+<script>
 import { ref, watch, nextTick } from 'vue'
 import { useCartStore } from '@/store/cart'
 import { api } from '@/services/api'
 import PaymentDialog from './PaymentDialog.vue'
 
-const cartStore = useCartStore()
-const showPaymentDialog = ref(false)
-const cartItemsContainer = ref<HTMLElement | null>(null)
+export default {
+  components: {
+    PaymentDialog
+  },
+  setup() {
+    const cartStore = useCartStore()
+    const showPaymentDialog = ref(false)
+    const cartItemsContainer = ref(null)
 
-function getImageUrl(product: any): string {
-  if (product.images && product.images.length > 0) {
-    return api.getImageUrl(product.images[0])
-  }
-  return product.image_url || ''
-}
+    function getImageUrl(product) {
+      if (product.images && product.images.length > 0) {
+        return api.getImageUrl(product.images[0])
+      }
+      return product.image_url || ''
+    }
 
-function handleCheckout() {
-  showPaymentDialog.value = true
-}
+    function handleCheckout() {
+      showPaymentDialog.value = true
+    }
 
-// Auto-scroll to bottom when cart items change
-watch(
-  () => cartStore.items.length,
-  async () => {
-    await nextTick()
-    if (cartItemsContainer.value) {
-      cartItemsContainer.value.scrollTo({
-        top: cartItemsContainer.value.scrollHeight,
-        behavior: 'smooth'
-      })
+    // Auto-scroll to bottom when cart items change
+    watch(
+      () => cartStore.items.length,
+      async () => {
+        await nextTick()
+        if (cartItemsContainer.value) {
+          cartItemsContainer.value.scrollTo({
+            top: cartItemsContainer.value.scrollHeight,
+            behavior: 'smooth'
+          })
+        }
+      }
+    )
+
+    function onPaymentComplete() {
+      // Clear the cart after successful payment
+      cartStore.clearCart()
+    }
+
+    // Watch for changes in cart items and scroll to top when items are added
+    watch(() => cartStore.itemCount, async (newCount, oldCount) => {
+      if (newCount > oldCount && cartItemsContainer.value) {
+        // Item was added, scroll to top to show the most recent item
+        await nextTick()
+        cartItemsContainer.value.scrollTo({
+          top: 0,
+          behavior: 'smooth'
+        })
+      }
+    })
+
+    return {
+      cartStore,
+      showPaymentDialog,
+      cartItemsContainer,
+      getImageUrl,
+      handleCheckout,
+      onPaymentComplete
     }
   }
-)
-
-function onPaymentComplete() {
-  // Clear the cart after successful payment
-  cartStore.clearCart()
 }
-
-// Watch for changes in cart items and scroll to top when items are added
-watch(() => cartStore.itemCount, async (newCount, oldCount) => {
-  if (newCount > oldCount && cartItemsContainer.value) {
-    // Item was added, scroll to top to show the most recent item
-    await nextTick()
-    cartItemsContainer.value.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    })
-  }
-})
 </script>
 
 <style scoped>

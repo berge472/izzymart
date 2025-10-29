@@ -5,12 +5,19 @@
   </v-app>
 </template>
 
-<script setup lang="ts">
+<script>
 import { useSettingsStore } from '@/store/settings'
 import DebugIndicator from '@/components/DebugIndicator.vue'
 
-// Initialize settings store to apply theme on app load
-const settingsStore = useSettingsStore()
+export default {
+  components: { DebugIndicator },
+  setup() {
+    // Initialize settings store to apply theme on app load
+    const settingsStore = useSettingsStore()
+
+    return {}
+  }
+}
 </script>
 
 <style>

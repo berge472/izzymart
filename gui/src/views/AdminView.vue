@@ -37,6 +37,9 @@
       <div class="admin-header">
         <h1>Product Administration</h1>
         <div class="header-actions">
+          <button @click="handleRemoveAll" class="btn-remove-all">
+            🗑️ Remove All Products
+          </button>
           <button @click="handleRefresh" class="btn-refresh">
             <span class="refresh-icon">↻</span> Refresh
           </button>
@@ -96,8 +99,24 @@
         <p>Scanning {{ currentUpc }}...</p>
       </div>
 
-      <!-- Product Editor -->
-      <div v-if="currentProduct" class="product-editor">
+      <!-- Recent Products Grid -->
+      <div class="recent-products-section">
+        <RecentProductsGrid
+          @product-selected="selectProduct"
+          @product-deleted="handleProductDeleted"
+        />
+      </div>
+
+      <!-- Product Editor Modal -->
+      <ProductEditorModal
+        v-model="showProductEditor"
+        :product="currentProduct"
+        @product-saved="handleProductSaved"
+        @product-deleted="handleProductDeleted"
+      />
+
+      <!-- OLD Product Editor (keeping as comment for reference, remove later) -->
+      <div v-if="false" class="product-editor">
         <h2>Edit Product</h2>
 
         <div class="editor-grid">
@@ -206,292 +225,228 @@
           <OnScreenKeyboard v-model="keyboardInput" @search="handleKeyboardSearch" />
         </div>
       </div>
-
-      <!-- Empty State -->
-      <div v-else class="empty-state">
-        <p>Scan a product barcode to begin editing</p>
-      </div>
     </div>
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+<script>
+import { ref } from 'vue'
 import { api } from '@/services/api'
-import type { Product } from '@/types'
 import ScannerInput from '@/components/ScannerInput.vue'
-import OnScreenKeyboard from '@/components/OnScreenKeyboard.vue'
+import RecentProductsGrid from '@/components/RecentProductsGrid.vue'
+import ProductEditorModal from '@/components/ProductEditorModal.vue'
 import { isDebugMode } from '@/utils/urlParams'
 
-const isAuthenticated = ref(false)
-const username = ref('')
-const password = ref('')
-const isLoggingIn = ref(false)
-const loginError = ref('')
+export default {
+  components: {
+    ScannerInput,
+    RecentProductsGrid,
+    ProductEditorModal
+  },
+  setup() {
+    const isAuthenticated = ref(false)
+    const username = ref('')
+    const password = ref('')
+    const isLoggingIn = ref(false)
+    const loginError = ref('')
 
-const currentProduct = ref<Product | null>(null)
-const currentUpc = ref('')
-const isScanning = ref(false)
-const isSaving = ref(false)
-const imageUrl = ref('')
-const fileInput = ref<HTMLInputElement | null>(null)
+    const currentProduct = ref(null)
+    const showProductEditor = ref(false)
+    const currentUpc = ref('')
+    const isScanning = ref(false)
 
-// Search functionality
-const searchQuery = ref('')
-const searchResults = ref<Product[]>([])
-const isSearching = ref(false)
-let searchTimeout: number | null = null
+    // Search functionality
+    const searchQuery = ref('')
+    const searchResults = ref([])
+    const isSearching = ref(false)
+    let searchTimeout = null
 
-// Keyboard functionality
-const keyboardInput = ref('')
+    // Check if already authenticated
+    isAuthenticated.value = api.isAuthenticated()
 
-const tagsString = computed({
-  get: () => currentProduct.value?.tags?.join(', ') || '',
-  set: (value: string) => {
-    if (currentProduct.value) {
-      currentProduct.value.tags = value.split(',').map(t => t.trim()).filter(t => t)
-    }
-  }
-})
+    async function handleLogin() {
+      isLoggingIn.value = true
+      loginError.value = ''
 
-// Check if already authenticated
-isAuthenticated.value = api.isAuthenticated()
-
-// Handle paste events for clipboard images
-function handlePaste(event: ClipboardEvent) {
-  // Only process paste when editing a product
-  if (!currentProduct.value) return
-
-  const items = event.clipboardData?.items
-  if (!items) return
-
-  // Look for image in clipboard
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
-
-    if (item.type.startsWith('image/')) {
-      event.preventDefault()
-
-      const file = item.getAsFile()
-      if (file) {
-        uploadImageFile(file)
+      try {
+        await api.login(username.value, password.value)
+        isAuthenticated.value = true
+      } catch (error) {
+        loginError.value = error.response?.data?.detail || 'Login failed. Please check your credentials.'
+      } finally {
+        isLoggingIn.value = false
       }
-      break
-    }
-  }
-}
-
-// Mount/unmount paste listener
-import { onMounted as vueOnMounted, onUnmounted as vueOnUnmounted } from 'vue'
-
-vueOnMounted(() => {
-  window.addEventListener('paste', handlePaste)
-})
-
-vueOnUnmounted(() => {
-  window.removeEventListener('paste', handlePaste)
-})
-
-async function handleLogin() {
-  isLoggingIn.value = true
-  loginError.value = ''
-
-  try {
-    await api.login(username.value, password.value)
-    isAuthenticated.value = true
-  } catch (error: any) {
-    loginError.value = error.response?.data?.detail || 'Login failed. Please check your credentials.'
-  } finally {
-    isLoggingIn.value = false
-  }
-}
-
-function handleLogout() {
-  api.logout()
-  isAuthenticated.value = false
-  currentProduct.value = null
-}
-
-async function handleProductScanned(upc: string) {
-  currentUpc.value = upc
-  isScanning.value = true
-
-  try {
-    // Use cache=false when debug mode is enabled via URL parameter
-    const useCache = !isDebugMode()
-    console.log(`Admin loading product with cache=${useCache} (debug mode: ${isDebugMode()})`)
-    const product = await api.getProductByUPC(upc, useCache)
-    currentProduct.value = { ...product }
-  } catch (error: any) {
-    console.error('Error loading product:', error)
-    alert(`Failed to load product: ${error.response?.data?.detail || error.message}`)
-  } finally {
-    isScanning.value = false
-  }
-}
-
-function getImageUrl(imageId: string): string {
-  return api.getImageUrl(imageId)
-}
-
-async function uploadImageFile(file: File) {
-  if (!currentProduct.value) return
-
-  try {
-    const uploaded = await api.uploadImage(file)
-
-    if (!currentProduct.value.images) {
-      currentProduct.value.images = []
     }
 
-    currentProduct.value.images.push(uploaded.id)
-
-    // Show success feedback
-    console.log('Image uploaded successfully from clipboard/file')
-  } catch (error: any) {
-    console.error('Error uploading image:', error)
-    alert('Failed to upload image')
-  }
-}
-
-async function handleImageUpload(event: Event) {
-  const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-
-  if (!file) return
-
-  await uploadImageFile(file)
-
-  // Reset file input
-  if (fileInput.value) {
-    fileInput.value.value = ''
-  }
-}
-
-async function handleImageUrlAdd() {
-  if (!imageUrl.value || !currentProduct.value) return
-
-  try {
-    const imageId = await api.addImageByUrl(imageUrl.value, currentProduct.value.id || '')
-
-    if (!currentProduct.value.images) {
-      currentProduct.value.images = []
+    function handleLogout() {
+      api.logout()
+      isAuthenticated.value = false
+      currentProduct.value = null
     }
 
-    currentProduct.value.images.push(imageId)
-    imageUrl.value = ''
-  } catch (error: any) {
-    console.error('Error adding image from URL:', error)
-    alert('Failed to add image from URL')
+    async function handleProductScanned(upc) {
+      currentUpc.value = upc
+      isScanning.value = true
+
+      try {
+        // Use cache=false when debug mode is enabled via URL parameter
+        const useCache = !isDebugMode()
+        console.log(`Admin loading product with cache=${useCache} (debug mode: ${isDebugMode()})`)
+        const product = await api.getProductByUPC(upc, useCache)
+        currentProduct.value = { ...product }
+        showProductEditor.value = true
+      } catch (error) {
+        console.error('Error loading product:', error)
+        alert(`Failed to load product: ${error.response?.data?.detail || error.message}`)
+      } finally {
+        isScanning.value = false
+      }
+    }
+
+    function getImageUrl(imageId) {
+      return api.getImageUrl(imageId)
+    }
+
+    // Search functionality
+    function handleSearch() {
+      // Clear existing timeout
+      if (searchTimeout) {
+        clearTimeout(searchTimeout)
+      }
+
+      // Clear results if search is empty
+      if (!searchQuery.value.trim()) {
+        searchResults.value = []
+        return
+      }
+
+      // Debounce search by 300ms
+      searchTimeout = window.setTimeout(async () => {
+        await performSearch()
+      }, 300)
+    }
+
+    async function performSearch() {
+      if (!searchQuery.value.trim()) {
+        searchResults.value = []
+        return
+      }
+
+      isSearching.value = true
+
+      try {
+        const results = await api.searchProducts(searchQuery.value)
+        searchResults.value = results
+      } catch (error) {
+        console.error('Error searching products:', error)
+        searchResults.value = []
+      } finally {
+        isSearching.value = false
+      }
+    }
+
+    function selectProduct(product) {
+      currentProduct.value = { ...product }
+      showProductEditor.value = true
+      searchQuery.value = ''
+      searchResults.value = []
+    }
+
+    function clearSearch() {
+      searchQuery.value = ''
+      searchResults.value = []
+    }
+
+    function handleRefresh() {
+      window.location.reload()
+    }
+
+    function handleProductSaved(product) {
+      console.log('Product saved:', product)
+      // Refresh could be handled here if needed
+      // For now, the modal closes and the RecentProductsGrid should refresh
+    }
+
+    function handleProductDeleted(product) {
+      console.log('Product deleted:', product)
+      // If the deleted product was being edited, clear the editor
+      if (currentProduct.value && currentProduct.value.id === product.id) {
+        currentProduct.value = null
+        showProductEditor.value = false
+      }
+    }
+
+    async function handleRemoveAll() {
+      const confirmDelete = confirm(
+        '⚠️ WARNING: Remove All Products\n\n' +
+        'This will permanently delete ALL products and images from the database.\n\n' +
+        'This action CANNOT be undone!\n\n' +
+        'Are you absolutely sure you want to continue?'
+      )
+
+      if (!confirmDelete) return
+
+      // Second confirmation for extra safety
+      const secondConfirm = confirm(
+        'FINAL CONFIRMATION\n\n' +
+        'This is your last chance to cancel.\n\n' +
+        'Click OK to permanently delete ALL products and images.'
+      )
+
+      if (!secondConfirm) return
+
+      try {
+        const result = await api.resetDatabase()
+        console.log('Database reset:', result)
+
+        // Clear current product if any
+        currentProduct.value = null
+
+        // Show success message
+        alert(
+          'Database Reset Complete\n\n' +
+          `Deleted:\n` +
+          `- ${result.deleted.products} products\n` +
+          `- ${result.deleted.file_metadata} file metadata records\n` +
+          `- ${result.deleted.gridfs_files} files from storage\n\n` +
+          'The page will now refresh.'
+        )
+
+        // Refresh the page to reload the empty state
+        window.location.reload()
+      } catch (error) {
+        console.error('Error resetting database:', error)
+        alert(`Failed to reset database: ${error.response?.data?.detail || error.message}`)
+      }
+    }
+
+    return {
+      isAuthenticated,
+      username,
+      password,
+      isLoggingIn,
+      loginError,
+      currentProduct,
+      showProductEditor,
+      currentUpc,
+      isScanning,
+      searchQuery,
+      searchResults,
+      isSearching,
+      handleLogin,
+      handleLogout,
+      handleProductScanned,
+      getImageUrl,
+      handleSearch,
+      performSearch,
+      selectProduct,
+      clearSearch,
+      handleRefresh,
+      handleProductSaved,
+      handleProductDeleted,
+      handleRemoveAll
+    }
   }
-}
-
-function removeImage(index: number) {
-  if (currentProduct.value?.images) {
-    currentProduct.value.images.splice(index, 1)
-  }
-}
-
-async function saveProduct() {
-  if (!currentProduct.value || !currentProduct.value.id) return
-
-  isSaving.value = true
-
-  try {
-    await api.updateProduct(currentProduct.value.id, currentProduct.value)
-    console.log('Product saved successfully!')
-  } catch (error: any) {
-    console.error('Error saving product:', error)
-    alert(`Failed to save product: ${error.response?.data?.detail || error.message}`)
-  } finally {
-    isSaving.value = false
-  }
-}
-
-function cancelEdit() {
-  currentProduct.value = null
-}
-
-async function deleteProduct() {
-  if (!currentProduct.value || !currentProduct.value.id) return
-
-  const confirmDelete = confirm(
-    `Are you sure you want to permanently delete "${currentProduct.value.name}"?\n\nThis action cannot be undone.`
-  )
-
-  if (!confirmDelete) return
-
-  isSaving.value = true
-
-  try {
-    await api.deleteProduct(currentProduct.value.id)
-    console.log('Product deleted successfully!')
-    currentProduct.value = null
-  } catch (error: any) {
-    console.error('Error deleting product:', error)
-    alert(`Failed to delete product: ${error.response?.data?.detail || error.message}`)
-  } finally {
-    isSaving.value = false
-  }
-}
-
-// Search functionality
-function handleSearch() {
-  // Clear existing timeout
-  if (searchTimeout) {
-    clearTimeout(searchTimeout)
-  }
-
-  // Clear results if search is empty
-  if (!searchQuery.value.trim()) {
-    searchResults.value = []
-    return
-  }
-
-  // Debounce search by 300ms
-  searchTimeout = window.setTimeout(async () => {
-    await performSearch()
-  }, 300)
-}
-
-async function performSearch() {
-  if (!searchQuery.value.trim()) {
-    searchResults.value = []
-    return
-  }
-
-  isSearching.value = true
-
-  try {
-    const results = await api.searchProducts(searchQuery.value)
-    searchResults.value = results
-  } catch (error: any) {
-    console.error('Error searching products:', error)
-    searchResults.value = []
-  } finally {
-    isSearching.value = false
-  }
-}
-
-function selectProduct(product: Product) {
-  currentProduct.value = { ...product }
-  searchQuery.value = ''
-  searchResults.value = []
-}
-
-function clearSearch() {
-  searchQuery.value = ''
-  searchResults.value = []
-}
-
-function handleRefresh() {
-  window.location.reload()
-}
-
-function handleKeyboardSearch() {
-  // Use keyboard input for search
-  searchQuery.value = keyboardInput.value
-  handleSearch()
 }
 </script>
 
@@ -652,6 +607,24 @@ function handleKeyboardSearch() {
 
 .btn-logout:hover {
   background: #c82333;
+}
+
+.btn-remove-all {
+  padding: 0.75rem 1.5rem;
+  background: #ff6b6b;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-remove-all:hover {
+  background: #ee5a52;
 }
 
 /* Search Section */
@@ -999,18 +972,9 @@ function handleKeyboardSearch() {
   cursor: not-allowed;
 }
 
-/* Empty State */
-.empty-state {
-  background: white;
-  padding: 4rem 2rem;
-  border-radius: 12px;
-  text-align: center;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-}
-
-.empty-state p {
-  color: #999;
-  font-size: 1.2rem;
+/* Recent Products Section */
+.recent-products-section {
+  margin-bottom: 2rem;
 }
 
 /* Keyboard Section */
